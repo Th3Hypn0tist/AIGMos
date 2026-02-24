@@ -1,3 +1,6 @@
-_test_out
-history
-tests
+_test_out/
+history/
+tests/
+*.db
+*.sqlite
+*.sqlite3

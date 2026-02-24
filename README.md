@@ -6,6 +6,8 @@ Status: Architecture Alpha (Stage1)
 
 ---
 
+Status: Architecture Alpha (Stage1)
+
 ## What this is
 
 This project explores a different approach to AI systems:
