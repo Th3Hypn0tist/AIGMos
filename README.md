@@ -143,6 +143,17 @@ For example:
 
 Instead of sending prompts directly to an LLM, AIGMos treats an LLM call as just another runtime action:
 
+command >> runtime pipeline >> LLM call >> stored output >> inspectable history
+
+The system does NOT yet implement:
+
+- multi-LLM routing
+- agent autonomy
+- workflow orchestration
+- automatic reasoning chains
+
+Those are considered future layers.
+
 ---
 
 ## Alpha Testing
