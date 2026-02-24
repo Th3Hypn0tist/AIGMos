@@ -272,6 +272,21 @@ AIGMos is designed to run as a local runtime environment where:
 
 It is not designed as a hosted AI service or a cloud agent platform.
 
+## Design Context
+
+AIGMos explores an alternative approach to AI system architecture.
+
+Many current AI tools are built around conversational interfaces and autonomous agent models.
+
+In contrast, AIGMos is designed as:
+
+- a deterministic runtime rather than a conversational endpoint
+- a system with explicit command surfaces
+- an environment where symbolic memory and execution are separated
+- a framework where LLM interaction is governed rather than autonomous
+
+The goal is to treat AI as **structured infrastructure** rather than opaque behavior.
+
 ## License
 
 AIGMos uses a Business Source License (BUSL).
