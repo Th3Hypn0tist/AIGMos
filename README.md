@@ -8,6 +8,23 @@ Status: Architecture Alpha (Stage1)
 
 Status: Architecture Alpha (Stage1)
 
+## Core Concept: Symbolic Memory
+
+AIGMos is designed to operate with a structured memory model rather than relying on opaque conversational context.
+
+The foundational approach is described in the related project:
+
+JIT Symbolic Memory  
+https://github.com/Th3Hypn0tist/jit-symbolic-memory
+
+This model introduces:
+
+- Explicit, inspectable memory structures
+- Separation between runtime execution and persistent symbolic state
+- Deterministic memory access instead of hidden context windows
+
+In the AIGMos architecture, LLM interaction is intended to operate on top of this symbolic memory layer rather than replacing it.
+
 ## What this is
 
 This project explores a different approach to AI systems:
