@@ -2,6 +2,8 @@
 
 Deterministic AI governance console and structured runtime.
 
+Status: Architecture Alpha (Stage1)
+
 ---
 
 ## What this is
