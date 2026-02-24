@@ -198,6 +198,80 @@ This phase prioritizes **observational feedback**, not feature requests.
 
 Structure may evolve
 
+## Architecture Questions
+
+### How does Symbolic Memory work in AIGMos?
+
+AIGMos does not rely on conversational context or hidden prompt history.
+
+Instead, it is designed to operate on top of a structured symbolic memory layer where:
+
+- memory is explicitly stored and inspectable
+- runtime execution and memory are separated
+- state transitions are deterministic
+
+The underlying concept is described in:
+
+https://github.com/Th3Hypn0tist/jit-symbolic-memory
+
+LLM interaction is intended to operate on this symbolic layer rather than replacing it.
+
+---
+
+### What are the goals of the Architecture Alpha (Stage1)?
+
+The current stage focuses on validating core principles:
+
+- deterministic command execution
+- explicit state management
+- inspectable runtime behavior
+- controlled integration of a single LLM call
+
+This stage is not about features, but about proving architectural foundations.
+
+---
+
+### How does AIGMos differ from MemoryCore-Lite?
+
+MemoryCore-Lite focuses primarily on structured memory modeling.
+
+AIGMos extends this idea into a full runtime environment by adding:
+
+- command execution pipeline
+- deterministic task orchestration
+- integration of symbolic memory with runtime actions
+
+In short:
+
+MemoryCore-Lite = memory model  
+AIGMos = runtime built on top of that model
+
+---
+
+### What does AIGMos add to AI governance?
+
+AIGMos explores a different paradigm for AI systems:
+
+Instead of treating AI as autonomous agents, it treats AI as:
+
+- a controlled execution component
+- part of an inspectable runtime
+- subject to deterministic workflows
+
+This enables governance through structure rather than post-hoc monitoring.
+
+---
+
+### How is AIGMos intended to be used locally?
+
+AIGMos is designed to run as a local runtime environment where:
+
+- state is stored locally
+- commands are executed deterministically
+- LLM calls are made through explicit runtime actions
+
+It is not designed as a hosted AI service or a cloud agent platform.
+
 ## License
 
 AIGMos uses a Business Source License (BUSL).
