@@ -1,0 +1,21 @@
+# system/topics/__init__.py
+# Explicit inclusion (Stage1)
+
+from .kvlists import COMMANDS as KVLISTS_COMMANDS
+from .lists import COMMANDS as LISTS_COMMANDS
+from .texts import COMMANDS as TEXTS_COMMANDS
+from .runner import COMMANDS as RUNNER_COMMANDS
+from .events import COMMANDS as EVENTS_COMMANDS
+from .surface import COMMANDS as SURFACE_COMMANDS
+from .qchat import COMMANDS as QCHAT_COMMANDS
+from .io import COMMANDS as IO_COMMANDS
+
+ALL_COMMANDS = {}
+ALL_COMMANDS.update(KVLISTS_COMMANDS)
+ALL_COMMANDS.update(LISTS_COMMANDS)
+ALL_COMMANDS.update(TEXTS_COMMANDS)
+ALL_COMMANDS.update(RUNNER_COMMANDS)
+ALL_COMMANDS.update(EVENTS_COMMANDS)
+ALL_COMMANDS.update(SURFACE_COMMANDS)
+ALL_COMMANDS.update(QCHAT_COMMANDS)
+ALL_COMMANDS.update(IO_COMMANDS)

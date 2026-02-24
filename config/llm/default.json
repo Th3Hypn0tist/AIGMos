@@ -1,0 +1,6 @@
+{
+  "base_url": "http://127.0.0.1:8787",
+  "model": "dummy",
+  "timeout_ms": 5000,
+  "poll_interval_ms": 10
+}

@@ -1,0 +1,97 @@
+mk $a
+mk $b
+mk $c
+mk $projekti.roolit
+mk $out
+add.item $a a1
+add.item $a a2
+add.item $a a3
+add.item $b b1
+add.item $b b2
+add.item $b b3
+add.item $c c1
+add.item $c c2
+add.item $c c3
+add.item $projekti.roolit kooderi
+add.item $projekti.roolit qa
+add.item $a:a1 alpha_42
+add.item $a:a2 silent_orbit
+add.item $a:a3 copper_signal
+add.item $b:b1 blue_vector
+add.item $b:b2 neon_pulse
+add.item $b:b3 quantum_leaf
+add.item $c:c1 ember_trace
+add.item $c:c2 gravity_seed
+add.item $c:c3 winter_echo
+add.item $projekti.roolit:kooderi pythonista
+add.item $projekti.roolit:qa tester
+mk &t
+mk &u
+mk &v
+add.item &t Q $a:a1
+add.item &t Q $b:b2
+add.item &t Q $c:c3
+add.item &u echo start
+add.item &u echo $projekti.roolit:kooderi
+add.item &u echo end
+cat $a:a1
+cat $projekti.roolit:kooderi
+cat &t
+cat &u
+cp $a $a.backup
+cp $a:a1 $b:b1_copy
+cp $a:a1 &v
+cp $b:b2 &v
+cp $c:c3 &v
+cp $a:a1 &v:0
+cp $b:b2 &v:2
+cp &t:0 $out:first
+cp &t:1 $out:second
+cp &t &t.clone
+ls $
+ls $a
+ls $a.backup
+ls $b
+ls $projekti.roolit
+ls $out
+ls &
+ls &t
+ls &u
+ls &v
+ls &t.clone
+cat $a.backup:a1
+cat $b:b1_copy
+cat $out:first
+cat $out:second
+cat &v
+cat &t.clone
+mv $a $a
+mv &t &t
+mv $a.backup $a.saved
+mv $b:b1_copy $b:b1_moved
+mv &t.clone &t.copied
+mv &u:0 &v:1
+ls $
+ls $a.saved
+ls $b
+ls &
+ls &u
+ls &v
+ls &t.copied
+cat $a.saved:a1
+cat $b:b1_moved
+cat &u
+cat &v
+cat &t.copied
+mv $a:a1 &t
+mv &t:0 $out:nope
+rm $a
+rm $b
+rm $c
+rm $projekti.roolit
+rm $out
+rm $a.saved
+rm &t
+rm &u
+rm &v
+rm &t.copied
