@@ -126,6 +126,25 @@ It is not yet intended for non-technical users.
 
 ---
 
+## What it can do today
+
+AIGMos is not an AI agent system.
+
+It is a deterministic command runtime that can execute structured tasks, including controlled interaction with a single LLM.
+
+In practice this means:
+
+- Commands can be defined and executed through a predictable runtime pipeline
+- The system maintains explicit state instead of relying on hidden conversational context
+- Every execution step is inspectable and reproducible
+- A single LLM call can already be executed as part of a controlled command flow
+
+For example:
+
+Instead of sending prompts directly to an LLM, AIGMos treats an LLM call as just another runtime action:
+
+---
+
 ## Alpha Testing
 
 This repository marks the start of a closed alpha phase.
