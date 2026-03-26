@@ -1,296 +1,176 @@
 # AIGMos
 
-Deterministic AI governance console and structured runtime.
-
-Status: Architecture Alpha (Stage1)
+Deterministic command-driven runtime for structured AI, automation, and real-time workflows.
 
 ---
 
-Status: Architecture Alpha (Stage1)
+## Status
 
-## Core Concept: Symbolic Memory
+**AIGMos Core 1.0** is the first stable public release of the runtime core.
 
-AIGMos is designed to operate with a structured memory model rather than relying on opaque conversational context.
+The command semantics are considered stable. The core execution model — explicit state, commands, triggers, events, runners, and loop-capable execution — has been implemented and validated in real use.
 
-The foundational approach is described in the related project:
+This release is aimed at technical users evaluating the runtime model. It is **not** presented as a polished end-user product.
 
-JIT Symbolic Memory  
-https://github.com/Th3Hypn0tist/jit-symbolic-memory
-
-This model introduces:
-
-- Explicit, inspectable memory structures
-- Separation between runtime execution and persistent symbolic state
-- Deterministic memory access instead of hidden context windows
-
-In the AIGMos architecture, LLM interaction is intended to operate on top of this symbolic memory layer rather than replacing it.
+---
 
 ## What this is
 
-This project explores a different approach to AI systems:
+AIGMos takes a different approach from chat-first AI tooling.
 
-Instead of treating AI as a black-box chat interface, this system provides a **deterministic command surface**, explicit state control, and auditable execution flow.
+Instead of centering the system around a conversational interface, AIGMos centers it around a deterministic command surface, explicit state, and inspectable execution.
 
-The goal is to make AI interaction:
+The goal is to make automation and AI-related workflows:
+
 - structured
 - predictable
 - inspectable
 - composable
 
-This repository represents the **first public footprint** of the architecture.
+---
+
+## Core model
+
+AIGMos is built around three storage primitives and a small set of runtime primitives.
+
+### Storage primitives
+
+- **$** → key/value state
+- **&** → ordered lists
+- **#** → structured table/tree data
+
+### Runtime primitives
+
+- **!** → triggers
+- **@** → events
+- **%** → runners / runtime instances
+
+These pieces are designed to work as a single runtime model:
+
+**signals → state → events → execution → actions**
+
+---
+
+## What 1.0 means
+
+Version 1.0 means the core model is stable enough to publish and build against.
+
+It does **not** mean that every future layer already exists.
+
+### Included in 1.0
+
+- stable command semantics
+- explicit state model
+- deterministic command surface
+- triggers
+- events
+- runners
+- loop-capable execution
+- persistent state
+- import/export path
+- terminal-first operation
+
+### Not promised by 1.0
+
+- polished UX
+- beginner-friendly onboarding
+- large integration catalog
+- distributed runtime features
+- every possible realtime extension
+- every future AI/provider layer
 
 ---
 
 ## Why this exists
 
-Current AI tooling is mostly:
+Most AI tooling still tends to be:
 
 - opaque
-- non-deterministic
-- difficult to audit
-- hard to integrate into structured workflows
+- hard to audit
+- difficult to integrate into strict workflows
+- too dependent on hidden assumptions
 
-This project investigates an alternative paradigm:
-
-> AI as a **governed runtime**, not a conversational endpoint.
-
-Key design principles:
+AIGMos explores a stricter model:
 
 - explicit commands over hidden magic
-- deterministic state transitions
-- clear separation of structure vs execution
-- modular, inspectable system layers
+- explicit state over implicit context
+- structured execution over loose prompting
+- stable semantics over shifting behavior
 
 ---
 
-## Current Status
+## High-level comparison
 
-**Development stage:** Architecture Alpha (Stage1)
-
-This means:
-
-- Core primitives are implemented
-- System is operational
-- Architecture is considered stable
-- Many features are intentionally unfinished
-
-This is **not** a production system and is not yet intended for general users.
+| Typical chat-first tooling | AIGMos |
+|---|---|
+| chat-centric interaction | command-centric interaction |
+| implicit state | explicit state |
+| hidden execution | inspectable execution |
+| loose workflow boundaries | structured flow boundaries |
+| conversational default | operational default |
 
 ---
 
-## What currently works
+## Who this is for
 
-Core system capabilities include:
+AIGMos Core 1.0 is primarily relevant for:
 
-- Deterministic command surface
-- Structured namespace model
-- List and routine primitives
-- Execution pipeline ("runner")
-- Persistent system state
-- Terminal UI environment
-
-The focus at this stage is validating the architecture, not feature completeness.
-
----
-
-## What is NOT ready
-
-The following areas are intentionally incomplete:
-
-- Polished UX
-- Comprehensive documentation
-- Installation automation
-- Advanced integrations
-- Performance optimization
-- Production-level stability guarantees
-
-Future layers (not yet included):
-
-- LLM orchestration
-- Agent frameworks
-- Distributed execution
-- Advanced symbolic memory systems
-
----
-
-## Project Philosophy
-
-This project is based on a core idea:
-
-> AI systems should be **governable infrastructure**, not unpredictable assistants.
-
-This leads to a different design approach:
-
-| Traditional AI | This System |
-|----------------|-------------|
-| Chat-centric | Command-centric |
-| Implicit state | Explicit state |
-| Hidden execution | Inspectable execution |
-| Black-box behavior | Deterministic flow |
-
----
-
-## Who this is for (at this stage)
-
-The current alpha phase is mainly relevant for:
-
-- system architects
+- system builders
+- automation developers
+- CLI-oriented users
 - AI infrastructure developers
-- CLI power users
-- researchers exploring structured AI interaction models
+- people exploring deterministic control surfaces
 
-It is not yet intended for non-technical users.
-
----
-
-## What it can do today
-
-AIGMos is not an AI agent system.
-
-It is a deterministic command runtime that can execute structured tasks, including controlled interaction with a single LLM.
-
-In practice this means:
-
-- Commands can be defined and executed through a predictable runtime pipeline
-- The system maintains explicit state instead of relying on hidden conversational context
-- Every execution step is inspectable and reproducible
-- A single LLM call can already be executed as part of a controlled command flow
-
-For example:
-
-Instead of sending prompts directly to an LLM, AIGMos treats an LLM call as just another runtime action:
-
-command >> runtime pipeline >> LLM call >> stored output >> inspectable history
-
-The system does NOT yet implement:
-
-- multi-LLM routing
-- agent autonomy
-- workflow orchestration
-- automatic reasoning chains
-
-Those are considered future layers.
+It is not yet optimized for non-technical users.
 
 ---
 
-## Alpha Testing
+## Quick example
 
-This repository marks the start of a closed alpha phase.
-
-Feedback is welcome especially on:
-
-- architectural clarity
-- command surface design
-- usability of deterministic workflows
-- conceptual alignment with real-world AI governance needs
-
-This phase prioritizes **observational feedback**, not feature requests.
-
----
-
-## Repository Structure (high-level)
-
-```
-/core           → system primitives and runtime logic
-/ui             → terminal interface components
-/modules        → extension system (experimental)
+```text
+mk $texts
+$texts:title = AIGMos
+mk &steps
+add &steps "echo hello"
+add &steps "echo world"
+run &steps
 ```
 
-Structure may evolve
+A more structured example:
 
-## Architecture Questions
-
-### How does Symbolic Memory work in AIGMos?
-
-AIGMos does not rely on conversational context or hidden prompt history.
-
-Instead, it is designed to operate on top of a structured symbolic memory layer where:
-
-- memory is explicitly stored and inspectable
-- runtime execution and memory are separated
-- state transitions are deterministic
-
-The underlying concept is described in:
-
-https://github.com/Th3Hypn0tist/jit-symbolic-memory
-
-LLM interaction is intended to operate on this symbolic layer rather than replacing it.
+```text
+trig !ready $SYSTEM:mode == run
+on !ready @start "run %main &boot"
+```
 
 ---
 
-### What are the goals of the Architecture Alpha (Stage1)?
+## Documentation map
 
-The current stage focuses on validating core principles:
-
-- deterministic command execution
-- explicit state management
-- inspectable runtime behavior
-- controlled integration of a single LLM call
-
-This stage is not about features, but about proving architectural foundations.
+- `docs/specs/CANONICAL_SPEC_v1.0.md`
+- `docs/specs/COMMANDS.md`
+- `docs/specs/RUNTIME.md`
+- `docs/specs/IMPORT_EXPORT.md`
+- `docs/examples/`
 
 ---
 
-### How does AIGMos differ from MemoryCore-Lite?
+## Release framing
 
-MemoryCore-Lite focuses primarily on structured memory modeling.
+This release should be read as:
 
-AIGMos extends this idea into a full runtime environment by adding:
+> **stable public core runtime**
+>
+> not
+>
+> **finished mass-market product**
 
-- command execution pipeline
-- deterministic task orchestration
-- integration of symbolic memory with runtime actions
-
-In short:
-
-MemoryCore-Lite = memory model  
-AIGMos = runtime built on top of that model
+That distinction is intentional.
 
 ---
-
-### What does AIGMos add to AI governance?
-
-AIGMos explores a different paradigm for AI systems:
-
-Instead of treating AI as autonomous agents, it treats AI as:
-
-- a controlled execution component
-- part of an inspectable runtime
-- subject to deterministic workflows
-
-This enables governance through structure rather than post-hoc monitoring.
-
----
-
-### How is AIGMos intended to be used locally?
-
-AIGMos is designed to run as a local runtime environment where:
-
-- state is stored locally
-- commands are executed deterministically
-- LLM calls are made through explicit runtime actions
-
-It is not designed as a hosted AI service or a cloud agent platform.
-
-## Design Context
-
-AIGMos explores an alternative approach to AI system architecture.
-
-Many current AI tools are built around conversational interfaces and autonomous agent models.
-
-In contrast, AIGMos is designed as:
-
-- a deterministic runtime rather than a conversational endpoint
-- a system with explicit command surfaces
-- an environment where symbolic memory and execution are separated
-- a framework where LLM interaction is governed rather than autonomous
-
-The goal is to treat AI as **structured infrastructure** rather than opaque behavior.
 
 ## License
 
 AIGMos uses a Business Source License (BUSL).
 
-The core architecture is publicly accessible for research, testing, and internal use, while commercial rights remain reserved by the Licensor.
-  
-See LICENSE.md for details.
+See `LICENSE.md` in the repository for the current license text.

@@ -1,6 +1,5 @@
-_test_out/
-history/
-tests/
 *.db
-*.sqlite
-*.sqlite3
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
