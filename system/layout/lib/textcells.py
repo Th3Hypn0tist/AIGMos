@@ -1,16 +1,29 @@
 from __future__ import annotations
 
 from typing import Any
-
-from wcwidth import wcwidth
+import unicodedata
 
 
 def char_cells(ch: str) -> int:
-    try:
-        width = int(wcwidth(str(ch or "")[:1]))
-    except Exception:
-        width = 1
-    return width if width > 0 else 1
+    raw = str(ch or "")[:1]
+    if not raw:
+        return 1
+
+    c = raw[0]
+
+    # zero-width / combining / control
+    if c in ("\u200c", "\u200d", "\ufe0e", "\ufe0f"):
+        return 0
+
+    cat = unicodedata.category(c)
+    if cat in {"Cc", "Cf", "Mn", "Me"}:
+        return 0
+
+    # wide/fullwidth characters
+    if unicodedata.east_asian_width(c) in {"F", "W"}:
+        return 2
+
+    return 1
 
 
 def text_cells(text: Any) -> int:
