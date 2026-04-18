@@ -1,0 +1,396 @@
+Use this exact spec. Literal compliance is required. Any deviation is a failure.
+
+You are writing exactly one AIGMos extension command module for:
+
+    extensions/commands/<NAME>.py
+
+Target contract is AIGMOS_EXTENSIONS_COMMANDS_V1.1.
+
+ABSOLUTE OPERATING MODE
+
+- Do not infer a different architecture.
+- Do not improve the task.
+- Do not simplify the task.
+- Do not reinterpret the task.
+- Do not generalize the task.
+- Do not substitute “close enough” behavior.
+- Do not repair the task with assumptions.
+- Do not invent missing APIs.
+- Do not invent missing semantics.
+- Do not invent parser behavior.
+- Do not invent stdin behavior.
+- Do not invent ctx behavior.
+- Do not invent state helpers.
+- Do not invent convenience wrappers.
+- Do not invent alternate command semantics.
+
+TASK FIELD LOCK
+
+The following task fields are authoritative and binding:
+
+- FILE NAME
+- COMMAND NAME
+- PURPOSE
+- CLI SYNTAX
+- ARGUMENT RULES
+- STATE API AVAILABLE THROUGH CTX
+- SUCCESS RESULT SHAPE
+- SUCCESS BUFFER OUTPUT
+- FAILURE MESSAGES
+- HELP SHORT
+- HELP FULL
+
+You must implement those fields exactly.
+You must not rename, normalize, reinterpret, approximate, or “clean up” any of them.
+
+If the generated file would not exactly match those fields, it is wrong.
+
+HARD STOP RULE
+
+If any required implementation detail is missing, contradictory, or impossible to satisfy from the task fields, do not invent it.
+
+In that case, output exactly one line and nothing else:
+
+SPEC_ERROR: <explicit missing-or-contradictory-field description>
+
+This is the only allowed non-file output.
+
+NON-NEGOTIABLE FILE STRUCTURE
+
+1. The module may contain import statements and exactly two top-level function definitions, and only these function definitions:
+   - handle(ctx, args)
+   - register()
+
+2. No other top-level functions are allowed.
+
+3. No classes are allowed.
+
+4. No decorators are allowed.
+
+5. No module-level variables, constants, helper objects, lambdas, or executable statements are allowed.
+   - Imports are allowed.
+   - The two required function definitions are allowed.
+   - Nothing else is allowed at top level.
+
+6. `register()` must return exactly one `CommandDef` instance.
+
+7. `handle(ctx, args)` must return exactly one 3-tuple on every path:
+   - (result, buffer_output, error)
+
+8. Success must be exactly:
+   - (<result>, <buffer_output>, None)
+
+9. Failure must be exactly:
+   - (None, "", "<explicit error message>")
+
+10. Forbidden return shapes:
+   - dict as top-level handler return
+   - list as top-level handler return
+   - set as top-level handler return
+   - 2-tuple
+   - 4-tuple
+   - bare None
+   - wrapper object
+   - custom response object
+   - HandlerResponse
+   - raising exceptions for normal user input errors
+
+11. The final file must be valid Python.
+
+IMPORT RULES
+
+12. Allowed imports are only:
+   - from __future__ import annotations
+   - from system.cs.command_def import CommandDef
+   - standard-library imports strictly required by the task
+   - AIGMos imports explicitly allowed by the task
+
+13. Every imported module must be used.
+
+14. Every used external name must be imported explicitly.
+
+15. Forbidden imports include:
+   - system.state
+   - sys
+   - argparse
+   - pathlib
+   - typing helpers not required by the task
+   - UI/layout/render modules
+   - stdin/stdout/stderr helpers
+   - hidden runtime singletons
+   - unrelated utility libraries
+
+16. Forbidden patterns include:
+   - from system.state import state
+   - import system.state
+   - state.update(...)
+   - ctx.stdin.read()
+   - input()
+   - print()
+   - logging output
+   - direct file I/O unless explicitly required
+   - direct terminal I/O
+   - direct layout calls
+   - direct render calls
+   - hidden singleton access
+
+17. Do not use a module you did not import.
+
+18. Do not import a module you do not use.
+
+ARGUMENT CONTRACT
+
+19. `args` is positional CLI argument data.
+
+20. Treat `args` as an ordered positional list unless the task explicitly states otherwise.
+
+21. Do not treat `args` as a dict.
+
+22. Forbidden argument patterns include:
+   - args.get(...)
+   - args["..."]
+   - args.items()
+   - kwargs-like assumptions
+   - named-argument assumptions
+   - stdin fallback
+   - environment fallback
+
+23. Read arguments only according to:
+   - CLI SYNTAX
+   - ARGUMENT RULES
+
+24. Validate argument count exactly.
+   - If CLI SYNTAX defines exactly N positional arguments, then `len(args)` must be exactly N.
+   - Fewer is failure.
+   - More is failure.
+   - Wrong count must return:
+     - (None, "", "<explicit error message>")
+
+25. Every positional placeholder in CLI SYNTAX is mandatory.
+   - No declared argument may be ignored.
+
+26. Binding must be literal.
+   Example:
+   - CLI SYNTAX: json.validate <input> <output>
+   then:
+   - args[0] is <input>
+   - args[1] is <output>
+   It is forbidden to:
+   - swap them
+   - ignore one
+   - infer extras
+   - collapse them
+   - rename their meaning
+
+27. If ARGUMENT RULES says an argument arrives already as one complete string:
+   - read it directly from its slot
+   - do not split it
+   - do not join args
+   - do not normalize it
+   - do not reinterpret it
+
+COMMAND NAME RULES
+
+28. COMMAND NAME is authoritative.
+
+29. `register().command` must exactly equal COMMAND NAME.
+   - Exact spelling required
+   - Exact punctuation required
+   - Exact dots required
+   - Exact case required
+
+30. Forbidden command-name substitutions include:
+   - snake_case for dotted names
+   - cleaned-up variants
+   - aliases
+   - synonyms
+   - renamed equivalents
+
+31. `handler=` in `CommandDef(...)` must be exactly `handle`.
+
+32. `help_short` must exactly equal HELP SHORT.
+
+33. `help_full` must exactly equal HELP FULL.
+
+34. `help_short` and `help_full` must describe only implemented behavior.
+   - Do not describe behavior that is not implemented.
+   - Do not mention hidden behavior.
+   - Do not mention future behavior.
+   - Do not mention guessed behavior.
+
+RESULT CONTRACT
+
+35. `result` must match SUCCESS RESULT SHAPE exactly.
+   - Do not invent a different result payload.
+   - Do not wrap the result payload.
+   - Do not move fields between result and buffer_output.
+   - Do not place buffer_output inside result.
+   - Do not place error text inside result.
+
+36. `buffer_output` must match SUCCESS BUFFER OUTPUT exactly.
+   - Do not invent visible text.
+   - Do not substitute generic text like "ok" unless the task explicitly says so.
+   - Do not return None for buffer_output on success.
+
+37. Failure messages must follow FAILURE MESSAGES exactly.
+   - Do not invent alternate phrasing.
+   - Do not invent friendlier wording.
+   - Do not invent generic fallback text unless explicitly allowed.
+
+STATE RULES
+
+38. If the task does not explicitly provide a writable state target, do not write state.
+
+39. If the task includes an explicit target such as `<output>`, only that target may be written.
+
+40. It is forbidden to ignore an explicit output target.
+
+41. It is forbidden to write to:
+   - fallback symbols
+   - default symbols
+   - temp symbols
+   - caches
+   - helper symbols
+   - validation caches
+   - global memory
+   - unnamed internal storage
+
+42. Use only state APIs explicitly listed in:
+   - STATE API AVAILABLE THROUGH CTX
+
+43. If no state API is listed, do not invent one.
+
+44. If the command is validation-only, it must not write state at all.
+
+45. If the command mutates state, it may mutate only the declared explicit target and nothing else.
+
+BEHAVIOR RULES
+
+46. Deterministic behavior only.
+   - same input + same allowed state => same result
+
+47. No hidden side effects.
+
+48. No anonymous writes.
+
+49. No fallback parsing behavior.
+
+50. No convenience behavior.
+
+51. No alternate CLI forms.
+
+52. No aliases unless explicitly requested.
+
+53. No silent acceptance of malformed input.
+
+54. No silent ignoring of extra args.
+
+55. No automatic recovery behavior unless explicitly required.
+
+56. No invented wrapper abstractions.
+
+57. No invented ctx helpers.
+
+58. No invented parser conveniences.
+
+59. No invented architecture.
+
+60. Do not use broad exception handling unless the task explicitly requires it.
+   - Avoid `except Exception`
+   - Catch only the specific exception types required by the stated command purpose
+
+REQUIRED FILE SHAPE
+
+The file must follow this exact shape:
+
+from __future__ import annotations
+
+from system.cs.command_def import CommandDef
+
+def handle(ctx, args):
+    ...
+    return result, buffer_output, None
+
+def register():
+    return CommandDef(
+        command="<COMMAND_NAME>",
+        handler=handle,
+        help_short="<HELP_SHORT>",
+        help_full="<HELP_FULL>"
+    )
+
+OUTPUT RULES
+
+61. If no SPEC_ERROR condition exists, output only the final Python file content.
+
+62. Do not output explanations.
+
+63. Do not output markdown fences.
+
+64. Do not output commentary before the file.
+
+65. Do not output commentary after the file.
+
+66. Do not output a checklist.
+
+67. Do not output notes.
+
+68. Do not output pseudo-code.
+
+69. Do not output partial code.
+
+70. Do not output placeholders unless they are present verbatim in the authoritative task fields.
+
+MANDATORY INTERNAL CONFORMANCE CHECK
+
+Before producing the file, internally verify every item below. If any item would fail, fix the file before output.
+
+- exactly two top-level function definitions exist
+- those function definitions are exactly `handle` and `register`
+- no other top-level function definitions exist
+- no classes exist
+- no decorators exist
+- no top-level statements exist except imports and the two required function definitions
+- register returns exactly one CommandDef
+- handler signature is exactly handle(ctx, args)
+- handler returns exactly 3 values on every path
+- success shape is exactly (result, buffer_output, None)
+- failure shape is exactly (None, "", "error")
+- args is treated as positional list input
+- args is not treated as dict input
+- argument count is validated exactly against CLI SYNTAX
+- every declared positional argument is read and used
+- no explicit output target is ignored
+- command name exactly matches COMMAND NAME
+- help_short exactly matches HELP SHORT
+- help_full exactly matches HELP FULL
+- every used module is explicitly imported
+- no unused imports exist
+- no print()
+- no stdin reads
+- no stdout/stderr work
+- no global state imports
+- no hidden writes
+- no layout/render/input-loop logic
+- no invented APIs
+- only explicitly allowed state targets are written
+- result payload exactly matches SUCCESS RESULT SHAPE
+- buffer_output exactly matches SUCCESS BUFFER OUTPUT
+- failure messages exactly follow FAILURE MESSAGES
+- no extra behavior beyond the task spec
+
+If any one of those would be false, the output is wrong.
+
+Now generate the complete file for this command using only these task fields:
+
+FILE NAME: <NAME>.py
+COMMAND NAME: <COMMAND_NAME>
+PURPOSE: <ONE_SENTENCE_PURPOSE>
+CLI SYNTAX: <EXACT_SYNTAX>
+ARGUMENT RULES: <EXACT_ARGUMENT_RULES>
+STATE API AVAILABLE THROUGH CTX: <ONLY_THE_CTX_APIS_YOU_ARE_ALLOWED_TO_USE>
+SUCCESS RESULT SHAPE: <EXACT_RESULT_PAYLOAD>
+SUCCESS BUFFER OUTPUT: <EXACT_VISIBLE_TEXT_RULE>
+FAILURE MESSAGES: <EXACT_ERROR_TEXT_RULES>
+HELP SHORT: <EXACT_HELP_SHORT>
+HELP FULL: <EXACT_HELP_FULL>

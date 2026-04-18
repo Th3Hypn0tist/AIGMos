@@ -1,6 +1,6 @@
 # system/cs/symbols/detect.py
 
-SYMBOL_ROOTS = "&%!$#@"
+SYMBOL_ROOTS = "&%!$#@|"
 
 
 def is_symbol_line(line: str) -> bool:

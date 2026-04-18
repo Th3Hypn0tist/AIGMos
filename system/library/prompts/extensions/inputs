@@ -1,0 +1,102 @@
+# extensions/adapters
+# =====================================================================
+# AIGMOS_EXTENSIONS_ADAPTERS_V1
+# purpose:
+#   connect external or alternate backends/interfaces to AIGMos
+# owns:
+#   - translation between external format and AIGMos format
+#   - backend-specific read/write/list implementation
+#   - explicit boundary behavior
+# does_not_own:
+#   - command semantics
+#   - layout semantics
+#   - business logic
+# =====================================================================
+
+EXT_ADAPTERS_PATH="extensions/adapters/"
+EXT_ADAPTERS_VERSION="1.0"
+
+ADAPTER_TYPES='''
+- state adapters
+- io adapters
+- protocol adapters
+- import/export adapters
+'''
+
+CORE_RULES='''
+- adapter must be thin
+- adapter translates, not decides policy
+- command/layout should not need backend-specific knowledge
+- adapter errors must be explicit
+- adapter must not invent hidden fallback writes
+'''
+
+STATE_ADAPTER_RULES='''
+if adapter is a state/backend adapter:
+- expose explicit read/write/delete/list behavior
+- keep symbol semantics unchanged
+- commands operate on symbols, not backend details
+- root-prefix spaces stay stable from command surface point of view
+'''
+
+IO_ADAPTER_RULES='''
+if adapter talks to external system:
+- normalize input/output once
+- keep raw escape/network/protocol quirks inside adapter
+- never leak transport-specific assumptions into commands/layouts
+'''
+
+MINIMUM_INTERFACE_EXAMPLE='''
+class FooAdapter:
+    def read_value(self, symbol: str):
+        ...
+
+    def write_value(self, symbol: str, value):
+        ...
+
+    def delete_value(self, symbol: str):
+        ...
+
+    def list_children(self, symbol: str):
+        ...
+'''
+
+LIST_CHILDREN_RULES='''
+list_children(symbol) should preferably return one of:
+- ["foo", "bar"]
+- {"value": ["foo", "bar"]}
+- [{"name": "foo"}, {"name": "bar"}]
+- [{"name": "cfg", "has_children": True}]
+
+if returning full targets, allowed:
+- [{"target": "#foo:bar"}]
+- [{"path": "$cfg:port"}]
+- [{"symbol": "&jobs:0"}]
+
+but response must be deterministic and consistent
+'''
+
+GOOD_USE_CASES='''
+- sqlite/postgres state adapter
+- osc input/output adapter
+- http source adapter
+- file import/export adapter
+- mem vs persistent backend adapter
+'''
+
+TEMPLATE='''
+from __future__ import annotations
+
+class FooAdapter:
+    def read_value(self, symbol: str):
+        raise NotImplementedError
+
+    def write_value(self, symbol: str, value):
+        raise NotImplementedError
+
+    def delete_value(self, symbol: str):
+        raise NotImplementedError
+
+    def list_children(self, symbol: str):
+        return []
+'''

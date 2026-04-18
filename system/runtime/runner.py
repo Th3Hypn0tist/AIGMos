@@ -1,3 +1,16 @@
+"""Runtime runner live ownership.
+
+This module owns only in-memory runner scheduling and inflight job state.
+It does not own durable runner definitions, and it does not own command
+execution semantics beyond dispatching step text into the parser executor.
+
+Ownership split:
+- runner.py          = live scheduling / inflight / status / step
+- runner_store.py    = durable runner definitions / autostart
+- parser:<command>   = actual command execution ownership
+- runner:<runner>    = reserved identity for future live runner state writes
+"""
+
 # system/runtime/runner.py
 
 from __future__ import annotations
@@ -8,6 +21,8 @@ import uuid
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
+
+from system.boot import boot_log
 
 
 STATUS_RUN = 0
@@ -155,7 +170,7 @@ def ensure_worker(
                 daemon=True,
             )
             _worker_thread.start()
-            print("[runner-thread] started", flush=True)
+            boot_log("[runner-thread] started")
 
 
 def shutdown_worker(wait: bool = False) -> None:

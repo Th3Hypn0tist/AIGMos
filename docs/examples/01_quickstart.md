@@ -1,10 +1,10 @@
 # 01_quickstart
 
-Minimal terminal-first example.
+Minimal current-snapshot terminal-first example.
 
 ```text
 mk $texts
-$texts:title = AIGMos
+set $texts:title AIGMos
 
 mk &steps
 add &steps "echo hello"
@@ -15,10 +15,18 @@ cat $texts:title
 run &steps
 ```
 
+Layout-oriented quick start:
+
+```text
+new |CS /cs
+new |Q /q
+new |HELP /help
+```
+
 What this shows:
 
 - create state
-- create a list
-- append steps
+- append ordered steps
 - inspect state
-- execute a list
+- execute a routine
+- create layout instances for normal work and help

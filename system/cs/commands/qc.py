@@ -1,53 +1,55 @@
 from __future__ import annotations
 
-import shlex
-
-from system.cs.lib.qcall import QCallError, qc_raw
-from system.cs.parser import HandlerResponse
+from system.cs.command_def import CommandDef
+from system.cs.models import HandlerResponse
+from system.cs.command_args import parse_command_output_tail_raw
+from system.lib.q.errors import QCallError
+from system.lib.q.worker import enqueue_qc_command
 
 
 command = "qc"
-help_short = "qc[.profile] <output> <prompt...> -> raw model output to symbol"
-help_full = (
-    "qc[.<profile>] <output> <prompt...>\n"
-    "\n"
-    "Examples:\n"
-    "  qc #out hello\n"
-    "  qc #out $foo #bar baz\n"
-    "  qc.grok #out $prompt\n"
-    "\n"
-    "Semantics:\n"
-    "- first arg after command = output symbol\n"
-    "- prompt tokens after that\n"
-    "- symbol tokens in prompt are expanded\n"
-    "- raw decoded output is written to out-symbol\n"
-    "- accepted output types: string, list, dict\n"
-    "- no buffer output\n"
-    "- no chat history\n"
-)
+help_short = 'qc[.profile] <output> <prompt...>'
+help_full = """stateless structured q call
+
+rules:
+- output target is explicit
+- no chat history is written
+- accepted decoded output types: string, list, dict
+- execution is queued through the shared q/qc worker
+
+examples:
+  qc #out hello
+  qc.coder #out $prompt
+"""
 
 
 def handler(line: str, parser) -> HandlerResponse:
     try:
-        parts = shlex.split(line)
+        command_token, output_symbol, prompt = parse_command_output_tail_raw(
+            line,
+            usage="usage: qc[.<profile>] <output> <prompt...>",
+            label="qc",
+        )
     except Exception as exc:
-        return HandlerResponse(error=f"qc parse error: {exc}")
+        return HandlerResponse(error=str(str(exc) or ""), force_render=True)
 
-    if len(parts) < 3:
-        return HandlerResponse(error="usage: qc[.<profile>] <output> <prompt...>")
-
-    command_token = parts[0]
-    _output = parts[1]
-    prompt = " ".join(parts[2:]).strip()
-
-    if not prompt:
-        return HandlerResponse(error="qc requires prompt")
+    if not isinstance(output_symbol, str) or output_symbol[:1] not in "$#&":
+        return HandlerResponse(error=str('qc output must start with $, # or &' or ""), force_render=True)
 
     try:
-        out = qc_raw(parser, command_token, prompt)
+        enqueue_qc_command(parser, command_token, output_symbol, prompt)
     except QCallError as exc:
-        return HandlerResponse(error=str(exc))
+        return HandlerResponse(error=str(str(exc) or ""), force_render=True)
     except Exception as exc:
-        return HandlerResponse(error=str(exc))
+        return HandlerResponse(error=str(str(exc) or ""), force_render=True)
 
-    return HandlerResponse(result=out["decoded"])
+    return HandlerResponse(buffer_output=str(""), force_render=True)
+
+
+def register() -> CommandDef:
+    return CommandDef(
+        command=command,
+        handler=handler,
+        help_short=help_short,
+        help_full=help_full,
+    )

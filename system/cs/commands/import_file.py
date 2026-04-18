@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
-import shlex
+from system.cs.command_def import CommandDef
+from system.cs.models import HandlerResponse
+
+
+from system.cs.command_args import parse_argv
 
 from system.cs.lib.file_import import (
     read_text_file,
@@ -10,29 +14,22 @@ from system.cs.lib.file_import import (
     validate_data_symbol,
 )
 from system.cs.lib.ops import list_symbols
-from system.cs.parser import HandlerResponse
+from system.cs.state_ops import delete_result, set_result
 
 
 command = "import.file"
-help_short = "import.file <src> <target>"
-help_full = (
-    "import.file <src> <target>\n"
-    "\n"
-    "Examples:\n"
-    "  import.file ./README.md $MEM:readme\n"
-    "  import.file ./notes.txt #docs:raw:file\n"
-    "  import.file $MEM:path $MEM:file\n"
-    "\n"
-    "Semantics:\n"
-    "- src first\n"
-    "- target second\n"
-    "- src may be literal filesystem path or symbol containing path\n"
-    "- src must be one UTF-8 text file\n"
-    "- target must be one $, # or & symbol\n"
-    "- whole file content is stored as one symbol value\n"
-    "- existing target value and child symbols are cleared first\n"
-)
+help_short = 'import.file <src> <target>'
+help_full = """import one filesystem file into one symbol target
 
+current implementation:
+- src first
+- target last
+- src may be literal path or symbol containing a path
+- target receives file text as one value
+
+note:
+- this help describes the current command implementation
+"""
 
 def _clear_target_if_exists(parser, target: str) -> None:
     matches = [
@@ -44,34 +41,35 @@ def _clear_target_if_exists(parser, target: str) -> None:
     ]
 
     for symbol in sorted(matches, key=len, reverse=True):
-        out = parser.state.delete(symbol)
-        if out["error"]:
-            raise ValueError(out["error"])
+        delete_result(parser.state, symbol, writer="parser:import.file", op="import_file_clear_target")
 
 
 def handler(line: str, parser) -> HandlerResponse:
     try:
-        parts = shlex.split(line)
-    except Exception as exc:
-        return HandlerResponse(error=f"import.file parse error: {exc}")
-
-    if len(parts) != 3:
-        return HandlerResponse(error="usage: import.file <src> <target>")
-
-    _, src_token, target = parts
-
-    try:
+        _, src_token, target = parse_argv(
+            line,
+            usage="usage: import.file <src> <target>",
+            label="import.file",
+            exact=2,
+        )
         validate_data_symbol(target)
         src_path = resolve_source_path(parser, src_token)
         text = read_text_file(src_path)
 
         _clear_target_if_exists(parser, target)
 
-        out = parser.state.set(target, text)
-        if out["error"]:
-            return HandlerResponse(error=out["error"])
+        set_result(parser.state, target, text, writer="parser:import.file", op="import_file_set_target")
 
     except Exception as exc:
-        return HandlerResponse(error=str(exc))
+        return HandlerResponse(error=str(str(exc) or ""))
 
-    return HandlerResponse(buffer_output="[ok]")
+    return HandlerResponse(buffer_output=str('[ok]' or ""))
+
+def register() -> CommandDef:
+    return CommandDef(
+        command=command,
+        handler=handler,
+        help_short=help_short,
+        help_full=help_full,
+    )
+

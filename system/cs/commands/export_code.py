@@ -2,53 +2,52 @@
 
 from __future__ import annotations
 
-import shlex
+from system.cs.command_def import CommandDef
+from system.cs.models import HandlerResponse
+
+
+from system.cs.command_args import parse_argv
 
 from system.cs.lib.file_export import export_code
-from system.cs.parser import HandlerResponse
 
 
 command = "export.code"
-help_short = "export.code <src> <dst>"
-help_full = (
-    "export.code <src> <dst>\n"
-    "\n"
-    "Examples:\n"
-    "  export.code #code ./out\n"
-    "  export.code $MEM:build ./out\n"
-    "  export.code #code:main.py ./main.py\n"
-    "  export.code $MEM:build $MEM:path\n"
-    "\n"
-    "Semantics:\n"
-    "- src first\n"
-    "- dst second\n"
-    "- src may be:\n"
-    "  1) one raw string leaf -> write one file\n"
-    "  2) one JSON object string leaf -> export manifest\n"
-    "  3) one object leaf -> export manifest\n"
-    "  4) one # subtree of string leaves -> export recursive tree\n"
-    "- manifest supports:\n"
-    "  - flat path -> string\n"
-    "  - nested object tree\n"
-    "- arrays, numbers, bools and null are invalid in manifest mode\n"
-    "- dst may be literal filesystem path or symbol containing path\n"
-)
+help_short = 'export.code <src> <dst>'
+help_full = """export code-like content from state to filesystem path or symbol
 
+current implementation:
+- src first
+- dst last
+- src may be $, #, or a code subtree
+- dst may be a filesystem path or compatible symbol target
+
+note:
+- this help describes the current command implementation
+"""
 
 def handler(line: str, parser) -> HandlerResponse:
     try:
-        parts = shlex.split(line)
+        _, src, dst = parse_argv(
+            line,
+            usage="usage: export.code <src> <dst>",
+            label="export.code",
+            exact=2,
+        )
     except Exception as exc:
-        return HandlerResponse(error=f"export.code parse error: {exc}")
-
-    if len(parts) != 3:
-        return HandlerResponse(error="usage: export.code <src> <dst>")
-
-    _, src, dst = parts
+        return HandlerResponse(error=str(str(exc) or ""))
 
     try:
         export_code(parser, src, dst)
     except Exception as exc:
-        return HandlerResponse(error=str(exc))
+        return HandlerResponse(error=str(str(exc) or ""))
 
-    return HandlerResponse(buffer_output="[ok]")
+    return HandlerResponse(buffer_output=str('[ok]' or ""))
+
+def register() -> CommandDef:
+    return CommandDef(
+        command=command,
+        handler=handler,
+        help_short=help_short,
+        help_full=help_full,
+    )
+

@@ -2,30 +2,29 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from system.cs.command_def import CommandDef
+from system.cs.models import HandlerResponse
+
+
 from typing import Any, List
 
 from system.runtime.runner import MODE_LOOP, create_runner, ensure_worker
 from system.runtime.runner_store import upsert_runner_def
-
-
-@dataclass
-class HandlerResponse:
-    result: object = None
-    buffer_output: str = ""
-    error: str = ""
+from system.cs.state_ops import get_optional
 
 
 command = "loop"
-help_short = "loop &name -> create %name in loop mode"
-help_full = (
-    "loop &name\n"
-    "Create a loop runner from indexed & routine.\n"
-    "Rules:\n"
-    "- accepts only & sources\n"
-    "- snapshot must contain at least 2 rows\n"
-)
+help_short = 'loop &name'
+help_full = """current implementation: create %name in loop mode from one indexed & routine
 
+rules:
+- accepts only & sources in this implementation
+- snapshot must contain at least 2 steps
+- runner name is derived from the & source
+
+note:
+- this help describes the current command implementation
+"""
 
 def _dispatch_raw(parser, raw: str, cancel_event=None):
     err = parser.parse(raw)
@@ -35,10 +34,7 @@ def _dispatch_raw(parser, raw: str, cancel_event=None):
 
 
 def _state_get(parser, key: str) -> Any:
-    out = parser.state.get(key)
-    if out["error"]:
-        raise ValueError(out["error"])
-    return out["result"]
+    return get_optional(parser.state, key)
 
 
 def _sorted_indexed_values(node: Any) -> List[str]:
@@ -76,12 +72,12 @@ def _runner_name_from_source(source: str) -> str:
 def handler(line: str, parser) -> HandlerResponse:
     parts = line.split(maxsplit=1)
     if len(parts) != 2:
-        return HandlerResponse(error="usage: loop &name")
+        return HandlerResponse(error=str('usage: loop &name' or ""))
 
     source = parts[1].strip()
 
     if not source.startswith("&"):
-        return HandlerResponse(error="loop accepts only & source")
+        return HandlerResponse(error=str('loop accepts only & source' or ""))
 
     try:
         ensure_worker(
@@ -108,6 +104,15 @@ def handler(line: str, parser) -> HandlerResponse:
             autostart=0,
         )
     except Exception as exc:
-        return HandlerResponse(error=str(exc))
+        return HandlerResponse(error=str(str(exc) or ""))
 
-    return HandlerResponse(buffer_output=f"[ok] {runner['name']}")
+    return HandlerResponse(buffer_output=str(f"[ok] {runner['name']}" or ""))
+
+def register() -> CommandDef:
+    return CommandDef(
+        command=command,
+        handler=handler,
+        help_short=help_short,
+        help_full=help_full,
+    )
+

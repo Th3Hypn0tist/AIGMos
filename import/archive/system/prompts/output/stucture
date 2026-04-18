@@ -1,0 +1,39 @@
+Output format rules:
+
+Shape example:
+
+{
+  "file1.foo": "content",
+  "directory1": {
+    "file2.foo": "content",
+    "subdirectory1": {
+      "file3.foo": "content"
+    }
+  }
+}
+
+- Return the project structure as one nested JSON object only
+- Do not output markdown
+- Do not explain anything
+- Do not add prose before or after the object
+- Represent directories as nested objects
+- Represent files as key-value pairs where:
+  - key = filename
+  - value = full file content as string
+- A directory key must contain an object
+- A file key must contain a string
+- The root must be a single object
+- Keep the structure minimal and clean
+- Do not include placeholders unless necessary
+- Do not include comments
+- Do not wrap the result in status, message, output, result, data, or metadata fields
+- The root object itself must be the project structure
+- File names must use their real file names, including dots
+- Directory names must be objects
+- Files must be string values
+- no-prose
+- no-markdown
+- json-only
+
+Output only json, nothing else.
+
