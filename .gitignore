@@ -2,5 +2,9 @@ __pycache__/
 *.pyc
 *.pyo
 *.pyd
-.env
-.venv/
+state.db
+*.db
+*.sqlite
+*.sqlite3
+hist/
+tests/
