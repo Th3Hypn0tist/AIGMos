@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from .lib.border import apply_border as _apply_border
-from .lib.border import border_enabled, content_rect, draw_border_frame as _draw_border_frame
+from .lib.border import border_enabled, border_padding, border_sides, content_rect, draw_border_frame as _draw_border_frame
 from .lib.editor import get_module_ui
 from .lib.payload import (
     align_row as _align_row,
@@ -33,6 +33,8 @@ __all__ = [
     "_viewport_head",
     "_viewport_tail",
     "border_enabled",
+    "border_padding",
+    "border_sides",
     "char_cells",
     "clear_q_state",
     "clip_cells",

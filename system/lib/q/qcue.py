@@ -7,9 +7,12 @@ import threading
 from system.cs.runtime_ctx import runtime_map
 from system.state.api import read_value, write_value
 
+from .errors import QCallError
+
 
 QCUE_ROOT = '#SYSTEM:Qcue'
 QCUE_WRITER = 'qcue'
+QSIZE_MAX = 12
 _VALID_STATUSES = {'waiting', 'running', 'done', 'error'}
 
 
@@ -42,6 +45,7 @@ def qcue_lock(parser):
 
 def qcue_wake(parser) -> None:
     _runtime(parser)['wake'].set()
+    _stat_inc(parser, 'wake_next')
 
 
 def qcue_wake_event(parser):
@@ -62,6 +66,26 @@ def qcue_thread_get(parser):
 
 def qcue_thread_set(parser, thread) -> None:
     _runtime(parser)['thread'] = thread
+
+
+def _stats(parser) -> dict[str, int]:
+    runtime = _runtime(parser)
+    stats = runtime.get('stats')
+    if isinstance(stats, dict):
+        return stats
+    stats = {}
+    runtime['stats'] = stats
+    return stats
+
+
+def _stat_inc(parser, name: str, amount: int = 1) -> None:
+    clean = str(name or 'unknown').strip() or 'unknown'
+    stats = _stats(parser)
+    stats[clean] = int(stats.get(clean, 0) or 0) + int(amount)
+
+
+def qcue_runtime_stats(parser) -> dict[str, int]:
+    return dict(_stats(parser))
 
 
 def _normalize_status(value: Any, default: str = 'waiting') -> str:
@@ -306,6 +330,163 @@ def qcue_seq_next(target) -> str:
     return task_id
 
 
+def _preferred_alias_from_active(active_global: dict[str, dict[str, str]], q_root: str) -> str:
+    clean_root = str(q_root or '').strip()
+    if not clean_root:
+        return ''
+    return str((active_global.get(clean_root) or {}).get('alias') or '').strip()
+
+
+def _finalize_match(payload: dict[str, Any], task_id: str, q_root: str) -> bool:
+    clean_task_id = str(task_id or '').strip()
+    clean_q_root = str(q_root or '').strip()
+    payload_task_id = str(payload.get('task_id') or '').strip()
+    payload_q_root = str(payload.get('q_root') or '').strip()
+    if clean_task_id:
+        return payload_task_id == clean_task_id
+    if clean_q_root:
+        status = str(payload.get('status') or '').strip().lower()
+        return payload_q_root == clean_q_root and status in {'waiting', 'running'}
+    return False
+
+
+def _finalize_alias_order(data: dict[str, Any], prefer_alias: str, q_root: str) -> list[str]:
+    aliases = dict(data.get('aliases') or {})
+    active_global = _qcue_active_global_get_unlocked(data)
+    active_alias = _preferred_alias_from_active(active_global, q_root)
+    ordered = _queue_lookup_alias_order(aliases, prefer_alias, active_alias)
+    clean_prefer = str(prefer_alias or '').strip() or 'default'
+    if clean_prefer not in ordered:
+        ordered.insert(0, clean_prefer)
+    return ordered
+
+
+def _qcue_finalize_unlocked(data: dict[str, Any], alias: str, q_root: str, task_id: str, status: str, *, error: str = '') -> tuple[dict[str, Any], int]:
+    clean_alias = str(alias or '').strip() or 'default'
+    clean_q_root = str(q_root or '').strip()
+    clean_task_id = str(task_id or '').strip()
+    clean_status = _normalize_status(status, 'done')
+
+    active_global = _qcue_active_global_get_unlocked(data)
+    if not clean_task_id and clean_q_root:
+        clean_task_id = str((active_global.get(clean_q_root) or {}).get('task_id') or '').strip()
+
+    aliases = dict(data.get('aliases') or {})
+    alias_order = _finalize_alias_order(data, clean_alias, clean_q_root)
+
+    resolved_alias = clean_alias
+    finished: dict[str, Any] | None = None
+
+    for alias_name in alias_order:
+        alias_data = _alias_payload(alias_name, aliases.get(alias_name))
+        for _key, item in _queue_items(alias_data):
+            payload = _task_payload(item, alias=alias_name)
+            if _finalize_match(payload, clean_task_id, clean_q_root):
+                finished = payload
+                resolved_alias = alias_name
+                break
+        if finished is not None:
+            break
+
+    if finished is None:
+        for alias_name in alias_order:
+            alias_data = _alias_payload(alias_name, aliases.get(alias_name))
+            history = dict(alias_data.get('history') or {})
+            for hist_task_id, item in history.items():
+                payload = _task_payload(item, alias=alias_name)
+                if _finalize_match(payload, clean_task_id or hist_task_id, clean_q_root):
+                    finished = payload
+                    resolved_alias = alias_name
+                    break
+            if finished is not None:
+                break
+
+    if finished is None:
+        finished = _task_payload({
+            'task_id': clean_task_id,
+            'q_root': clean_q_root,
+            'status': clean_status,
+            'alias': resolved_alias,
+        }, alias=resolved_alias)
+
+    if clean_q_root:
+        finished['q_root'] = clean_q_root
+    if clean_task_id:
+        finished['task_id'] = clean_task_id
+    finished['status'] = clean_status
+    if error:
+        finished['error'] = str(error)
+    elif clean_status != 'error':
+        finished.pop('error', None)
+
+    changed_aliases: set[str] = set()
+    for alias_name in alias_order:
+        alias_data = _alias_payload(alias_name, aliases.get(alias_name))
+        queue = dict(alias_data.get('queue') or {})
+        remove_keys: list[str] = []
+        for key, item in queue.items():
+            payload = _task_payload(item, alias=alias_name)
+            if _finalize_match(payload, clean_task_id, clean_q_root):
+                remove_keys.append(str(key))
+        if remove_keys:
+            for key in remove_keys:
+                queue.pop(key, None)
+            alias_data['queue'] = _queue_payload(queue, alias=alias_name)
+            aliases[alias_name] = alias_data
+            changed_aliases.add(alias_name)
+
+    target_alias_data = _alias_payload(resolved_alias, aliases.get(resolved_alias))
+    history = dict(target_alias_data.get('history') or {})
+    history_key = str(finished.get('task_id') or clean_task_id or '')
+    if history_key:
+        history[history_key] = finished
+    target_alias_data['history'] = _history_payload(history, alias=resolved_alias)
+    aliases[resolved_alias] = target_alias_data
+    changed_aliases.add(resolved_alias)
+
+    for alias_name in changed_aliases:
+        _qcue_alias_set_unlocked(data, alias_name, aliases.get(alias_name) or {})
+
+    released_active = 0
+    if clean_q_root and clean_q_root in active_global:
+        active_entry = dict(active_global.get(clean_q_root) or {})
+        if not clean_task_id or str(active_entry.get('task_id') or '').strip() == clean_task_id:
+            active_global.pop(clean_q_root, None)
+            released_active += 1
+    if clean_task_id:
+        for root, entry in list(active_global.items()):
+            if str((entry or {}).get('task_id') or '').strip() == clean_task_id:
+                active_global.pop(root, None)
+                released_active += 1
+    _qcue_active_global_set_unlocked(data, active_global)
+    return dict(finished), released_active
+
+
+def qcue_finalize(parser, task: dict[str, Any] | None = None, status: str = 'done', *, alias: str = '', q_root: str = '', task_id: str = '', error: str = '') -> dict[str, Any]:
+    payload = dict(task) if isinstance(task, dict) else {}
+    clean_alias = str(payload.get('alias') or alias or '').strip() or 'default'
+    clean_q_root = str(payload.get('q_root') or q_root or '').strip()
+    clean_task_id = str(payload.get('task_id') or task_id or '').strip()
+    clean_status = _normalize_status(status, 'done')
+    with qcue_lock(parser):
+        data = qcue_state_get(parser.state)
+        finished, released_active = _qcue_finalize_unlocked(
+            data,
+            clean_alias,
+            clean_q_root,
+            clean_task_id,
+            clean_status,
+            error=str(error or ''),
+        )
+        qcue_state_set(parser.state, data)
+    _stat_inc(parser, 'cleaned_up')
+    _stat_inc(parser, 'finalized_error' if clean_status == 'error' else 'finalized_ok')
+    if released_active > 0:
+        _stat_inc(parser, 'active_released', released_active)
+    qcue_wake(parser)
+    return finished
+
+
 def qcue_queue_push(target, alias: str, entry: dict[str, Any]) -> dict[str, Any]:
     state = _state_from_target(target)
     clean_alias = str(alias or '').strip() or 'default'
@@ -314,6 +495,11 @@ def qcue_queue_push(target, alias: str, entry: dict[str, Any]) -> dict[str, Any]
         data = qcue_state_get(state)
         alias_data = _qcue_alias_get_unlocked(data, clean_alias)
         queue = _queue_payload(alias_data.get('queue'), alias=clean_alias)
+        if str(payload.get('kind') or 'q') == 'q' and len(queue) >= QSIZE_MAX:
+            parser = target if hasattr(target, 'state') else None
+            if parser is not None:
+                _stat_inc(parser, 'rejected')
+            raise QCallError(f'q queue full for alias {clean_alias} (max {QSIZE_MAX})')
         queue[str(len(queue))] = payload
         alias_data['queue'] = queue
         _qcue_alias_set_unlocked(data, clean_alias, alias_data)
@@ -372,11 +558,23 @@ def qcue_enqueue(parser, alias: str, command_token: str, q_root: str, prompt: st
         }, alias=clean_alias)
         alias_data = _qcue_alias_get_unlocked(data, clean_alias)
         queue = _queue_payload(alias_data.get('queue'), alias=clean_alias)
+        if clean_kind == 'q' and len(queue) >= QSIZE_MAX:
+            _stat_inc(parser, 'rejected')
+            raise QCallError(f'q queue full for alias {clean_alias} (max {QSIZE_MAX})')
         queue[str(len(queue))] = entry
         alias_data['queue'] = queue
         _qcue_alias_set_unlocked(data, clean_alias, alias_data)
         qcue_state_set(parser.state, data)
+    _stat_inc(parser, 'queued')
     return entry
+
+
+def _active_entry_for_root(active_global: dict[str, Any], q_root: str) -> dict[str, str]:
+    clean_root = str(q_root or '').strip()
+    if not clean_root:
+        return {}
+    entry = active_global.get(clean_root)
+    return dict(entry) if isinstance(entry, dict) else {}
 
 
 def qcue_claim_next_runnable(parser) -> dict[str, Any] | None:
@@ -387,9 +585,6 @@ def qcue_claim_next_runnable(parser) -> dict[str, Any] | None:
 
         def _try_pick(want_kind: str):
             nonlocal data, aliases, active_global
-            active_root, _active_alias, active_task_id = _effective_q_active(active_global)
-            if want_kind == 'q' and active_task_id:
-                return None
             for alias in sorted(aliases.keys()):
                 alias_data = _alias_payload(alias, aliases.get(alias))
                 queue_items = _queue_items(alias_data)
@@ -405,7 +600,8 @@ def qcue_claim_next_runnable(parser) -> dict[str, Any] | None:
                     if want_kind == 'q':
                         if not q_root:
                             continue
-                        if active_root and active_task_id:
+                        active_entry = _active_entry_for_root(active_global, q_root)
+                        if str(active_entry.get('task_id') or '').strip():
                             continue
                     picked_key = key
                     picked_task = task
@@ -418,13 +614,14 @@ def qcue_claim_next_runnable(parser) -> dict[str, Any] | None:
                 alias_data['queue'] = _queue_payload(queue, alias=alias)
                 _qcue_alias_set_unlocked(data, alias, alias_data)
                 if want_kind == 'q':
-                    active_global = {}
+                    active_global = dict(active_global)
                     active_global[str(picked_task.get('q_root') or '')] = {
                         'alias': alias,
                         'task_id': str(picked_task.get('task_id') or ''),
                     }
                     _qcue_active_global_set_unlocked(data, active_global)
                 qcue_state_set(parser.state, data)
+                _stat_inc(parser, 'claimed_q' if want_kind == 'q' else 'claimed_qc')
                 return dict(picked_task)
             return None
 
@@ -435,59 +632,15 @@ def qcue_claim_next_runnable(parser) -> dict[str, Any] | None:
 
 
 def qcue_complete(parser, alias: str, q_root: str, task_id: str, status: str, *, error: str = '') -> dict[str, Any]:
-    clean_alias = str(alias or '').strip() or 'default'
-    clean_q_root = str(q_root or '').strip()
-    clean_task_id = str(task_id or '').strip()
-    clean_status = _normalize_status(status, 'done')
-    with qcue_lock(parser):
-        data = qcue_state_get(parser.state)
-        aliases = dict(data.get('aliases') or {})
-        alias_data = _alias_payload(clean_alias, aliases.get(clean_alias))
-        queue = dict(alias_data.get('queue') or {})
-        history = dict(alias_data.get('history') or {})
-        active_global = _qcue_active_global_get_unlocked(data)
-
-        finished = None
-        remove_key = None
-        for key, item in _queue_items(alias_data):
-            payload = _task_payload(item, alias=clean_alias)
-            if str(payload.get('task_id') or '') == clean_task_id:
-                finished = payload
-                remove_key = key
-                break
-        if finished is None:
-            payload = history.get(clean_task_id)
-            if isinstance(payload, dict):
-                finished = _task_payload(payload, alias=clean_alias)
-        if finished is None:
-            raise RuntimeError(f'qcue_complete: task not found alias={clean_alias} q_root={clean_q_root} task_id={clean_task_id}')
-
-        finished['status'] = clean_status
-        if clean_q_root:
-            finished['q_root'] = clean_q_root
-        if error:
-            finished['error'] = str(error)
-        elif 'error' in finished and clean_status != 'error':
-            finished.pop('error', None)
-
-        if remove_key is not None:
-            queue.pop(remove_key, None)
-        alias_data['queue'] = _queue_payload(queue, alias=clean_alias)
-        history[clean_task_id] = finished
-        alias_data['history'] = _history_payload(history, alias=clean_alias)
-        _qcue_alias_set_unlocked(data, clean_alias, alias_data)
-
-        if clean_q_root:
-            active_entry = dict(active_global.get(clean_q_root) or {})
-            if str(active_entry.get('task_id') or '').strip() == clean_task_id:
-                active_global.pop(clean_q_root, None)
-        if clean_task_id:
-            for root, entry in list(active_global.items()):
-                if str((entry or {}).get('task_id') or '').strip() == clean_task_id:
-                    active_global.pop(root, None)
-        _qcue_active_global_set_unlocked(data, active_global)
-        qcue_state_set(parser.state, data)
-        return dict(finished)
+    return qcue_finalize(
+        parser,
+        None,
+        status=status,
+        alias=alias,
+        q_root=q_root,
+        task_id=task_id,
+        error=error,
+    )
 
 
 def _queue_lookup_alias_order(aliases: dict[str, Any], prefer_alias: str, active_alias: str) -> list[str]:
@@ -501,25 +654,6 @@ def _queue_lookup_alias_order(aliases: dict[str, Any], prefer_alias: str, active
     return ordered
 
 
-def _effective_q_active(active_global: dict[str, Any]) -> tuple[str, str, str]:
-    best_root = ''
-    best_alias = ''
-    best_task_id = ''
-    best_rank: tuple[int, int | str] | None = None
-    for root, raw in dict(active_global or {}).items():
-        entry = dict(raw or {})
-        task_id = str(entry.get('task_id') or '').strip()
-        if not task_id:
-            continue
-        rank = _task_id_rank(task_id)
-        if best_rank is None or rank < best_rank:
-            best_rank = rank
-            best_root = str(root or '').strip()
-            best_alias = str(entry.get('alias') or '').strip()
-            best_task_id = task_id
-    return best_root, best_alias, best_task_id
-
-
 def qcue_lookup_root(state, q_root: str, prefer_alias: str | None = None) -> dict[str, Any] | None:
     clean_q_root = str(q_root or '').strip()
     if not clean_q_root:
@@ -528,7 +662,9 @@ def qcue_lookup_root(state, q_root: str, prefer_alias: str | None = None) -> dic
     data = qcue_state_get(state)
     aliases = dict(data.get('aliases') or {})
     active_global = _qcue_active_global_get_unlocked(data)
-    active_root, active_alias, active_task_id = _effective_q_active(active_global)
+    active_entry = _active_entry_for_root(active_global, clean_q_root)
+    active_alias = str(active_entry.get('alias') or '').strip()
+    active_task_id = str(active_entry.get('task_id') or '').strip()
     alias_names = _queue_lookup_alias_order(aliases, prefer, active_alias)
 
     best_waiting: dict[str, Any] | None = None
@@ -543,7 +679,7 @@ def qcue_lookup_root(state, q_root: str, prefer_alias: str | None = None) -> dic
             if str(payload.get('q_root') or '').strip() != clean_q_root:
                 continue
             task_id = str(payload.get('task_id') or '')
-            is_active = bool(active_root and clean_q_root == active_root and active_alias and alias == active_alias and active_task_id and task_id == active_task_id)
+            is_active = bool(active_task_id and active_alias and alias == active_alias and task_id == active_task_id)
             payload_status = str(payload.get('status') or 'waiting')
             if not is_active and payload_status == 'running':
                 payload_status = 'waiting'
@@ -619,5 +755,7 @@ __all__ = [
     'qcue_enqueue',
     'qcue_claim_next_runnable',
     'qcue_complete',
+    'qcue_finalize',
     'qcue_lookup_root',
+    'qcue_runtime_stats',
 ]

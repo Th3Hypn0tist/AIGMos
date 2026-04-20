@@ -100,7 +100,7 @@ def _render_due(parser, q_root: str, *, interval: float = _RENDER_INTERVAL_SECON
     return True
 
 
-def _mark_q_targets_dirty(parser, q_root: str, *, force: bool = False) -> None:
+def _mark_q_targets_dirty(parser, q_root: str, *, force: bool = False, full: bool = False) -> None:
     ctx = get_ctx(parser)
     if not isinstance(ctx, dict) or not q_root:
         return
@@ -131,7 +131,7 @@ def _mark_q_targets_dirty(parser, q_root: str, *, force: bool = False) -> None:
         view = str(getattr(inst, 'view_target', '') or '').strip()
         if primary == q_root or view == target_view:
             try:
-                mark_dirty(ctx, str(getattr(inst, 'handle', handle) or handle))
+                mark_dirty(ctx, str(getattr(inst, 'handle', handle) or handle), full=full)
                 marked += 1
             except Exception:
                 pass
@@ -140,6 +140,8 @@ def _mark_q_targets_dirty(parser, q_root: str, *, force: bool = False) -> None:
         flags = ctx.setdefault('flags', {})
         if isinstance(flags, dict):
             flags['force_render'] = True
+            if full:
+                flags['layout_hard_redraw'] = True
 
 
 def _run_q_task(parser, task: dict[str, str]) -> None:
@@ -154,7 +156,7 @@ def _run_q_task(parser, task: dict[str, str]) -> None:
         _mark_q_targets_dirty(parser, q_root)
 
     def _on_done(_full_text: str, _chat_symbol: str, _key: str) -> None:
-        _mark_q_targets_dirty(parser, q_root, force=True)
+        _mark_q_targets_dirty(parser, q_root, force=True, full=True)
 
     _set_active_live_state(parser, q_root, prompt, alias, clear_error=True)
     _mark_q_targets_dirty(parser, q_root, force=True)
@@ -232,10 +234,10 @@ def _run_task(parser, task: dict[str, str]) -> None:
                     write_text_symbol(parser.state, f'{q_root}:status', 'error', 'q_async_cleanup_error_status')
                 except Exception:
                     pass
-        _mark_q_targets_dirty(parser, q_root, force=True)
+        _mark_q_targets_dirty(parser, q_root, force=True, full=True)
     finally:
         qcue_wake(parser)
-        _mark_q_targets_dirty(parser, q_root, force=True)
+        _mark_q_targets_dirty(parser, q_root, force=True, full=True)
 
 
 def _start_worker(parser, task: dict[str, str]) -> None:
@@ -347,7 +349,7 @@ def enqueue_q_command(parser, command_token: str, q_root: str, prompt: str) -> N
     )
     ensure_scheduler(parser)
     qcue_wake(parser)
-    _mark_q_targets_dirty(parser, q_root, force=True)
+    _mark_q_targets_dirty(parser, q_root, force=True, full=True)
 
 
 def enqueue_qc_command(parser, command_token: str, output_symbol: str, prompt: str) -> None:

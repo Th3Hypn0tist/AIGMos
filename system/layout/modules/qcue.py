@@ -195,7 +195,10 @@ def build_payload(ctx, binding_handle: str, spec: dict[str, Any], rect: dict[str
         max(1, int(inner_rect.get("h", 1) or 1)),
         flow,
     )
-    return finalize_payload(ctx, instance.handle, visible or [""], attrs, MODULE, rect)
+    payload_attrs = dict(attrs)
+    if not str(payload_attrs.get("flow") or "").strip():
+        payload_attrs["flow"] = "top"
+    return finalize_payload(ctx, instance.handle, visible or [""], payload_attrs, MODULE, rect)
 
 
 def handle_key(ctx, module_handle: str, key: int) -> bool:

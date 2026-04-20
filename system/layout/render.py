@@ -4,9 +4,21 @@ from typing import Any
 
 from . import registry
 from .loader import load_module
+from .lib.border import border_padding, content_rect
 from .lib.wrap import wrap_text
 
 DEBUG_BORDERS = False
+
+_RENDER_CACHE_STATS: dict[str, int] = {
+    'hits': 0,
+    'misses': 0,
+    'full_rebuilds': 0,
+    'dirty_rebuilds': 0,
+}
+
+
+def render_cache_stats() -> dict[str, int]:
+    return dict(_RENDER_CACHE_STATS)
 
 
 def _split_even(total: int, parts: int) -> list[int]:
@@ -120,11 +132,12 @@ def _leaf_contract(ctx, spec: dict[str, Any], binding_handle: str, width: int) -
         instance = registry.get_instance(ctx, spec["instance_handle"])
         spec["instance"] = instance
     attrs = dict(spec.get("attrs") or {})
-    bordered = str(attrs.get("border") or "").strip().lower() in {"1", "true", "yes", "on"}
-    inner_width = max(1, int(width) - 2) if bordered else width
-    info = dict(module.measure(ctx, binding_handle, spec, inner_width, instance) or {"min_h": 1, "scalable_y": False})
-    if bordered:
-        info["min_h"] = int(info.get("min_h", 1) or 1) + 2
+    pad = border_padding(attrs)
+    usable_width = max(0, int(width) - int(pad.get("left", 0) or 0) - int(pad.get("right", 0) or 0))
+    measure_width = max(1, usable_width)
+    info = dict(module.measure(ctx, binding_handle, spec, measure_width, instance) or {"min_h": 1, "scalable_y": False})
+    content_height = max(1, int(info.get("min_h", 1) or 1))
+    info["min_h"] = content_height + int(pad.get("top", 0) or 0) + int(pad.get("bottom", 0) or 0)
     return info
 
 
@@ -270,6 +283,8 @@ def _screen_cache(ctx) -> dict[str, Any]:
 
 
 def _build_full_snapshot(ctx, active: str, width: int, height: int) -> dict[str, Any]:
+    _RENDER_CACHE_STATS['misses'] += 1
+    _RENDER_CACHE_STATS['full_rebuilds'] += 1
     if registry.has_layout_binding(ctx, active):
         runtime = ctx.setdefault("layout_runtime", {}) if isinstance(ctx, dict) else {}
         binding = runtime.get("bindings", {}).get(registry.normalize_handle(active), {})
@@ -332,7 +347,14 @@ def build_snapshot(ctx, width: int | None = None, height: int | None = None) -> 
             return _build_full_snapshot(ctx, active, width, height)
 
         if not dirty_modules:
+            cached_snapshot = cache.get('snapshot') if isinstance(cache, dict) else None
+            if isinstance(cached_snapshot, dict):
+                _RENDER_CACHE_STATS['hits'] += 1
+                return cached_snapshot
             return _build_full_snapshot(ctx, active, width, height)
+
+        _RENDER_CACHE_STATS['misses'] += 1
+        _RENDER_CACHE_STATS['dirty_rebuilds'] += 1
 
         drawables = cache.get("drawables") or []
         spec_by_handle = cache.get("spec_by_handle") or {}

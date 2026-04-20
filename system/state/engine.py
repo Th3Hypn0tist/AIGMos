@@ -59,6 +59,16 @@ class StateEngine:
         self._write_counter = 0
         self._cache: dict[str, StateEnvelope] = {}
         self._dirty: set[str] = set()
+        self._stats_lock = threading.RLock()
+        self._stats: dict[str, int] = {
+            "read_fast_calls": 0,
+            "read_cache_hits": 0,
+            "read_cache_misses": 0,
+            "read_cache_race_saved": 0,
+            "write_submitted_calls": 0,
+            "delete_submitted_calls": 0,
+            "append_submitted_calls": 0,
+        }
         self._flush_batch_limit = max(1, int(flush_batch_limit or 256))
         self._last_flushed_seq = 0
         self._thread = threading.Thread(
@@ -135,12 +145,26 @@ class StateEngine:
             return out.get("result")
         return out
 
+    def _bump_stat(self, key: str, amount: int = 1) -> None:
+        clean_key = str(key or "").strip()
+        if not clean_key:
+            return
+        with self._stats_lock:
+            self._stats[clean_key] = int(self._stats.get(clean_key, 0)) + int(amount)
+
+    def _stats_snapshot(self) -> dict[str, int]:
+        with self._stats_lock:
+            return {str(k): int(v) for k, v in self._stats.items()}
+
+
     def _load_live_envelope(self, symbol: str) -> StateEnvelope:
         with self._cache_lock:
             cached = self._cache.get(symbol)
             if cached is not None:
+                self._bump_stat("read_cache_hits")
                 return cached
 
+        self._bump_stat("read_cache_misses")
         value = self._inner_result("get", symbol)
         env = StateEnvelope(
             value=value,
@@ -151,6 +175,10 @@ class StateEngine:
             op="load",
         )
         with self._cache_lock:
+            cached = self._cache.get(symbol)
+            if cached is not None:
+                self._bump_stat("read_cache_race_saved")
+                return cached
             self._cache[symbol] = env
         return env
 
@@ -214,13 +242,18 @@ class StateEngine:
             assert_extension_symbol_read_allowed(self, symbol)
         except Exception as exc:
             return {"error": str(exc), "result": None}
-        return self._submit("read_state", symbol)
+        self._bump_stat("read_fast_calls")
+        try:
+            return self._do_read_state(symbol)
+        except Exception as exc:
+            return {"error": str(exc), "result": None}
 
     def write_state(self, symbol: str, value: Any, *, writer: str = "system", op: str = "set") -> dict[str, Any]:
         try:
             assert_extension_symbol_write_allowed(self, symbol)
         except Exception as exc:
             return {"error": str(exc), "result": None}
+        self._bump_stat("write_submitted_calls")
         return self._submit("write_state", symbol, value, str(writer or "system"), str(op or "set"))
 
     def delete_state(self, symbol: str, *, writer: str = "system", op: str = "delete") -> dict[str, Any]:
@@ -228,6 +261,7 @@ class StateEngine:
             assert_extension_symbol_write_allowed(self, symbol)
         except Exception as exc:
             return {"error": str(exc), "result": None}
+        self._bump_stat("delete_submitted_calls")
         return self._submit("delete_state", symbol, str(writer or "system"), str(op or "delete"))
 
     def append_numeric(self, symbol: str, value: Any, *, writer: str = "system", op: str = "append") -> dict[str, Any]:
@@ -235,6 +269,7 @@ class StateEngine:
             assert_extension_symbol_write_allowed(self, symbol)
         except Exception as exc:
             return {"error": str(exc), "result": None}
+        self._bump_stat("append_submitted_calls")
         return self._submit("append_numeric", symbol, value, str(writer or "system"), str(op or "append"))
 
     def list_symbols(self) -> dict[str, Any]:
@@ -283,6 +318,9 @@ class StateEngine:
         self._flush_queue.put(None)
         self._thread.join(timeout=1.0)
         self._flush_thread.join(timeout=2.0)
+
+    def stats(self) -> dict[str, Any]:
+        return {"error": "", "result": self._stats_snapshot()}
 
     # alias methods
     def get(self, symbol: str) -> dict[str, Any]:

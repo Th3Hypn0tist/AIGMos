@@ -1,20 +1,23 @@
 <layout title="AIGMos - HGI Command Surface">
-	<row><label input="|:title" border="1"></row>
+	
     <row>
 		<cell>
-			
-			<row h="5"><qcue border="1"></row>
-			<row><monitor target="|" ></row>
+			<row><label input="|:title" border="1"></row>
+			<row h="5"><qcue border="WS"></row>
+			<row><label input="Command Buffer" border="WS"></row>
+			<row><monitor target="|" border="W"></row>
 		</cell>
 		
 		<cell>
-             <row><qmon target="|Q:q" border="1"></row>
-			<row><label input="Q"></row>
+			<row><label input="Q" border="1"></row>
+             <row><qmon target="|Q:q" border="W"></row>
+			
 			
         </cell>
 		<cell>
-            <row><qmon target="|HELP:q"></row>
-			<row><label input="HELP"></row>
+			<row><label input="HELP" border="1"></row>
+            <row><qmon target="|HELP:q" border="WE"></row>
+			
 		</cell>
     </row>
     <row><label input="CS" border="1"></row>

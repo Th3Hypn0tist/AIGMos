@@ -27,7 +27,8 @@ def measure(ctx, binding_handle: str, spec: dict[str, Any], width: int, instance
 
 def build_payload(ctx, binding_handle: str, spec: dict[str, Any], rect: dict[str, int], instance):
     attrs = dict(spec.get("attrs") or {})
-    flow = flow_attr(MODULE, attrs)
+    # Keep explicit flow values as-is, but default <q> to the same flow behavior as <qmon>.
+    flow = flow_attr("qmon", attrs)
     inner_rect = content_rect(attrs, rect)
     lines = render_q_lines(ctx, instance, int(inner_rect.get("w", 1) or 1), int(inner_rect.get("h", 1) or 1), flow)
     return finalize_payload(ctx, instance.handle, lines or [""], attrs, MODULE, rect)

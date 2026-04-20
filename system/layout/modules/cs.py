@@ -3,9 +3,9 @@ from __future__ import annotations
 from typing import Any
 
 from system.layout.lib import editor as layout_editor
-from system.layout.lib.border import content_rect
+from system.layout.lib.border import border_padding, content_rect
 from system.layout.lib.payload import finalize_payload
-from system.layout.lib.spec import bool_attr, int_attr
+from system.layout.lib.spec import int_attr
 from system.layout.lib.targets import layout_buffer_target
 from system.layout.lib.textcells import insert_cursor_marker
 from system.layout.lib.wrap import wrapped_window_with_cursor
@@ -47,10 +47,10 @@ def build_payload(ctx, binding_handle: str, spec: dict[str, Any], rect: dict[str
     lines = list(visible_lines or [""])
     lines[line_index] = insert_cursor_marker(lines[line_index], int(local_cursor.get("x", 0) or 0))
     out = finalize_payload(ctx, instance.handle, lines, attrs, MODULE, rect)
-    border = bool_attr(attrs, 'border', False)
+    pad = border_padding(attrs)
     out["cursor_local"] = {
-        "x": int(local_cursor.get("x", 0) or 0) + (1 if border else 0),
-        "y": int(local_cursor.get("y", 0) or 0) + (1 if border else 0),
+        "x": int(local_cursor.get("x", 0) or 0) + int(pad.get("left", 0) or 0),
+        "y": int(local_cursor.get("y", 0) or 0) + int(pad.get("top", 0) or 0),
     }
     out["force_full_rect"] = True
     out.pop("row_updates", None)

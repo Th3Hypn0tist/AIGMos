@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .border import apply_border, border_enabled, content_rect
+from .border import BORDER_SIDE_ORDER, apply_border, border_enabled, border_sides, content_rect
 from .editor import get_module_ui
 from .textcells import clip_cells, ljust_cells, text_cells
 
@@ -22,7 +22,9 @@ def module_flow(tag: str, attrs: dict[str, Any]) -> str:
 
 
 def align_row(raw: str, width: int, align: str) -> str:
-    width = max(1, int(width or 1))
+    width = max(0, int(width or 0))
+    if width <= 0:
+        return ""
     clipped = clip_cells(raw, width)
     clipped_w = text_cells(clipped)
     if align == "center":
@@ -35,8 +37,10 @@ def align_row(raw: str, width: int, align: str) -> str:
 
 
 def project_rows(lines: list[str], width: int, height: int, align: str = "left", va: str = "bottom") -> list[str]:
-    width = max(1, int(width or 1))
-    height = max(1, int(height or 1))
+    width = max(0, int(width or 0))
+    height = max(0, int(height or 0))
+    if width <= 0 or height <= 0:
+        return []
     visible = [str(item or "") for item in (lines or [""])]
     if len(visible) > height:
         if va == "top":
@@ -66,6 +70,7 @@ def payload(lines: list[str], attrs: dict[str, Any], tag: str, rect: dict[str, i
         "align": module_align(attrs),
         "va": module_flow(tag, attrs),
         "border": border_enabled(attrs),
+        "border_sides": "".join(ch.upper() for ch in BORDER_SIDE_ORDER if ch in border_sides(attrs)),
     }
     if isinstance(rect, dict):
         if out["border"]:
@@ -81,6 +86,7 @@ def payload(lines: list[str], attrs: dict[str, Any], tag: str, rect: dict[str, i
                 inner_rows,
                 max(1, int(rect.get("w", 1) or 1)),
                 max(1, int(rect.get("h", 1) or 1)),
+                attrs=attrs,
             )
         else:
             out["screen_rows"] = project_rows(
