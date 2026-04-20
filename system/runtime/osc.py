@@ -1,6 +1,6 @@
-# system/runtime/osc.py
-
 from __future__ import annotations
+
+from system.boot import boot_log
 
 import socket
 import struct
@@ -15,23 +15,34 @@ class OSCInServer(threading.Thread):
         self.port = int(port)
         self.buffer_size = int(buffer_size)
         self.adapter = adapter
+        self._running = True
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.bind((self.bind_ip, self.port))
-        print(f"[osc-bind] {self.bind_ip}:{self.port} buffer={self.buffer_size}")
+        self.sock.settimeout(0.2)
+        boot_log(f"[osc-bind] {self.bind_ip}:{self.port} buffer={self.buffer_size}")
+
+    def stop(self) -> None:
+        self._running = False
+        try:
+            self.sock.close()
+        except Exception:
+            pass
 
     def run(self) -> None:
-        print("[osc-thread] started")
-        while True:
+        boot_log("[osc-thread] started")
+        while self._running:
             try:
                 data, addr = self.sock.recvfrom(self.buffer_size)
-                # print(f"[osc-raw] from={addr} bytes={len(data)}")
-
                 for address, args in decode_osc_packet(data):
-                    symbol = self.adapter.apply_packet(address, args)
-                    # print(f"[osc-in] {addr[0]} {address} {args} -> {symbol}")
-
+                    self.adapter.apply_packet(address, args)
+            except socket.timeout:
+                continue
+            except OSError:
+                if not self._running:
+                    break
+                boot_log("[osc-error] socket closed unexpectedly")
             except Exception as e:
-                print(f"[osc-error] {type(e).__name__}: {e}")
+                boot_log(f"[osc-error] {type(e).__name__}: {e}")
 
 
 def decode_osc_packet(data: bytes) -> list[tuple[str, list[Any]]]:

@@ -2,8 +2,15 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
+from system.state.api import read_value, write_value
+
 
 RUNNER_DEFS_SYMBOL = "#SYSTEM:runtime:runners"
+
+
+def _runner_writer(name: str) -> str:
+    clean = str(name or "").strip()
+    return f"runner_store:{clean}" if clean else "runner_store:unknown"
 
 
 class RunnerDefError(ValueError):
@@ -11,14 +18,11 @@ class RunnerDefError(ValueError):
 
 
 def _state_get_value(state, symbol: str):
-    out = state.get(symbol)
-    if out["error"]:
-        raise RunnerDefError(out["error"])
-    return out["result"]
+    return read_value(state, symbol, None)
 
 
-def _state_set_value(state, symbol: str, value: Any) -> None:
-    out = state.set(symbol, value)
+def _state_set_value(state, symbol: str, value: Any, *, writer: str = "runner_store:persist") -> None:
+    out = write_value(state, symbol, value, writer=writer, op="runner_persist")
     if out["error"]:
         raise RunnerDefError(out["error"])
 
@@ -76,7 +80,7 @@ def load_runner_defs(state) -> Dict[str, Dict[str, Any]]:
     return out
 
 
-def save_runner_defs(state, defs: Dict[str, Dict[str, Any]]) -> None:
+def save_runner_defs(state, defs: Dict[str, Dict[str, Any]], *, writer: str = "runner_store:persist") -> None:
     payload: Dict[str, Dict[str, Any]] = {}
     for name, item in defs.items():
         normalized = _normalize_def(name, item)
@@ -86,7 +90,7 @@ def save_runner_defs(state, defs: Dict[str, Dict[str, Any]]) -> None:
             "lines": normalized["lines"],
             "autostart": normalized["autostart"],
         }
-    _state_set_value(state, RUNNER_DEFS_SYMBOL, payload)
+    _state_set_value(state, RUNNER_DEFS_SYMBOL, payload, writer=writer)
 
 
 def upsert_runner_def(
@@ -109,7 +113,7 @@ def upsert_runner_def(
         },
     )
     defs[name] = normalized
-    save_runner_defs(state, defs)
+    save_runner_defs(state, defs, writer=_runner_writer(name))
     return normalized
 
 
@@ -118,7 +122,7 @@ def delete_runner_def(state, name: str) -> bool:
     if name not in defs:
         return False
     defs.pop(name, None)
-    save_runner_defs(state, defs)
+    save_runner_defs(state, defs, writer=_runner_writer(name))
     return True
 
 
@@ -129,7 +133,7 @@ def set_runner_autostart(state, name: str, value: Any) -> int:
         raise RunnerDefError(f"runner not found: {name}")
     item["autostart"] = _normalize_autostart(value)
     defs[name] = _normalize_def(name, item)
-    save_runner_defs(state, defs)
+    save_runner_defs(state, defs, writer=_runner_writer(name))
     return defs[name]["autostart"]
 
 
@@ -140,4 +144,4 @@ def set_runner_mode_persistent(state, name: str, mode: str) -> None:
         raise RunnerDefError(f"runner not found: {name}")
     item["mode"] = str(mode)
     defs[name] = _normalize_def(name, item)
-    save_runner_defs(state, defs)
+    save_runner_defs(state, defs, writer=_runner_writer(name))

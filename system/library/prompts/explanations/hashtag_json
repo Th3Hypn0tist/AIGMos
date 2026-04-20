@@ -1,0 +1,27 @@
+Read this JSON strictly as a filesystem tree.
+
+Rules:
+- object = directory
+- string = file content
+- key = real file or directory name
+- do not reinterpret keys
+- do not split filenames by extension
+- do not invent code symbols
+- answer only in English
+
+First do this:
+1. list all full paths
+2. mark each as [directory] or [file]
+
+Only after that:
+3. summarize structure
+4. explain main files
+5. explain likely control flow from visible code only
+6. list unknown parts
+
+Use full paths like:
+- /modules [directory]
+- /modules/q.py [file]
+
+If a conclusion is based only on filename, label it:
+"inferred from path name only"

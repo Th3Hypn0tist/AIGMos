@@ -4,9 +4,16 @@ import os
 from fnmatch import fnmatch
 from pathlib import Path
 
-from system.cs.lib.ops import list_symbols, remove_subtree, validate_symbol
+from system.cs.lib.ops import list_symbols, remove_subtree
+from system.cs.state_ops import get_optional, set_result
+from system.cs.symbol_rules import require_symbol
+from system.extensions import (
+    active_command_is_extension,
+    assert_extension_symbol_read_allowed,
+    extension_read_path_allowed,
+)
 
-_SYMBOL_ROOTS = "$#&%@!"
+_SYMBOL_ROOTS = "$#&%@!|"
 
 _DEFAULT_IGNORE_PATTERNS = [
     "__pycache__",
@@ -30,14 +37,18 @@ def resolve_source_path(parser, token: str) -> Path:
     raw = token
 
     if is_symbol(token):
-        out = parser.state.get(token)
-        if out["error"]:
-            raise ValueError(out["error"])
-        if out["result"] in (None, ""):
+        try:
+            assert_extension_symbol_read_allowed(parser.state, token)
+        except Exception as exc:
+            raise ValueError(str(exc)) from exc
+        value = get_optional(parser.state, token)
+        if value in (None, ""):
             raise ValueError(f"source symbol not found: {token}")
-        raw = str(out["result"])
+        raw = str(value)
 
     path = Path(str(raw)).expanduser()
+    if active_command_is_extension(parser.state) and not extension_read_path_allowed(str(path)):
+        raise ValueError(f"forbidden extension source path: {path}")
     if not path.exists():
         raise ValueError(f"source path not found: {path}")
     return path
@@ -54,28 +65,24 @@ def read_text_file(path: Path) -> str:
 
 
 def validate_data_symbol(symbol: str) -> None:
-    validate_symbol(symbol)
-    if symbol[0] not in "$#&":
-        raise ValueError("target must start with $, # or &")
+    require_symbol(symbol, allowed="$#&")
 
 
 def validate_code_root(symbol: str) -> None:
-    validate_symbol(symbol)
-    if not symbol.startswith("#"):
-        raise ValueError("import.code target must start with #")
+    require_symbol(symbol, allowed="#", role="import.code target")
 
 
-def import_code_tree(parser, src_path: Path, dst_root: str) -> None:
+def import_code_tree(parser, src_path: Path, dst_root: str, *, writer: str = "parser:import.code") -> None:
     validate_code_root(dst_root)
 
     items = _collect_code_items(parser, src_path)
-    _clear_prefix_if_exists(parser.state, dst_root)
+    _clear_prefix_if_exists(parser.state, dst_root, writer=writer)
+
+    set_result(parser.state, dst_root, "{}", writer=writer, op="import_code_root_set")
 
     for rel_key, text in items:
         target = f"{dst_root}:{rel_key}" if rel_key else dst_root
-        out = parser.state.set(target, text)
-        if out["error"]:
-            raise ValueError(out["error"])
+        set_result(parser.state, target, text, writer=writer, op="import_code_item_set")
 
 
 def _collect_code_items(parser, src_path: Path) -> list[tuple[str, str]]:
@@ -95,7 +102,6 @@ def _collect_code_items(parser, src_path: Path) -> list[tuple[str, str]]:
         root_path = Path(root)
         rel_root = root_path.relative_to(src_path)
 
-        # prune dirs before descending
         keep_dirs = []
         for dirname in dirs:
             rel_parts = list(rel_root.parts) + [dirname]
@@ -132,10 +138,10 @@ def _validate_segments(parts: list[str]) -> None:
                 raise ValueError(f"invalid path segment: {segment}")
 
 
-def _clear_prefix_if_exists(state, prefix: str) -> None:
+def _clear_prefix_if_exists(state, prefix: str, *, writer: str) -> None:
     for symbol in list_symbols(state):
         if symbol == prefix or symbol.startswith(prefix + ":"):
-            remove_subtree(state, prefix)
+            remove_subtree(state, prefix, writer=writer, op="import_code_clear_prefix")
             return
 
 
@@ -150,11 +156,7 @@ def _get_ignore_patterns(parser) -> list[str]:
     patterns = list(_DEFAULT_IGNORE_PATTERNS)
 
     for symbol in sorted(symbols, key=sort_key):
-        out = parser.state.get(symbol)
-        if out["error"]:
-            raise ValueError(out["error"])
-
-        value = out["result"]
+        value = get_optional(parser.state, symbol)
         if value is None:
             continue
 

@@ -2,33 +2,29 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from system.cs.command_def import CommandDef
+from system.cs.models import HandlerResponse
+
+
 from typing import Any, List
 
 from system.runtime.runner import MODE_CYCLE, create_runner, ensure_worker
 from system.runtime.runner_store import upsert_runner_def
-
-
-@dataclass
-class HandlerResponse:
-    result: object = None
-    buffer_output: str = ""
-    error: str = ""
+from system.cs.state_ops import get_optional
 
 
 command = "cycle"
-help_short = "cycle <source> -> create %name in cycle mode"
-help_full = (
-    "cycle <source>\n"
-    "Create a cycle runner from source.\n"
-    "Allowed sources:\n"
-    "- &name\n"
-    "- $name\n"
-    "- #path:to:item\n"
-    "Rules:\n"
-    "- resolved snapshot must contain at least 2 rows\n"
-)
+help_short = 'cycle <source>'
+help_full = """helper: create %name in cycle mode from &, $, or # source
 
+rules:
+- accepted sources: &name, $template, #table
+- resolved snapshot must contain at least 2 steps
+- runner name is derived from the source
+
+note:
+- cycle is outside the locked v40 canonical command surface
+"""
 
 def _dispatch_raw(parser, raw: str, cancel_event=None):
     err = parser.parse(raw)
@@ -38,10 +34,7 @@ def _dispatch_raw(parser, raw: str, cancel_event=None):
 
 
 def _state_get(parser, key: str) -> Any:
-    out = parser.state.get(key)
-    if out["error"]:
-        raise ValueError(out["error"])
-    return out["result"]
+    return get_optional(parser.state, key)
 
 
 def _sorted_indexed_values(node: Any) -> List[str]:
@@ -161,12 +154,12 @@ def _runner_name_from_source(source: str) -> str:
 def handler(line: str, parser) -> HandlerResponse:
     parts = line.split(maxsplit=1)
     if len(parts) != 2:
-        return HandlerResponse(error="usage: cycle <source>")
+        return HandlerResponse(error=str('usage: cycle <source>' or ""))
 
     source = parts[1].strip()
 
     if not source or source[0] not in "&$#":
-        return HandlerResponse(error="cycle accepts only &, $, or # source")
+        return HandlerResponse(error=str('cycle accepts only &, $, or # source' or ""))
 
     try:
         ensure_worker(
@@ -193,6 +186,15 @@ def handler(line: str, parser) -> HandlerResponse:
             autostart=0,
         )
     except Exception as exc:
-        return HandlerResponse(error=str(exc))
+        return HandlerResponse(error=str(str(exc) or ""))
 
-    return HandlerResponse(buffer_output=f"[ok] {runner['name']}")
+    return HandlerResponse(buffer_output=str(f"[ok] {runner['name']}" or ""))
+
+def register() -> CommandDef:
+    return CommandDef(
+        command=command,
+        handler=handler,
+        help_short=help_short,
+        help_full=help_full,
+    )
+

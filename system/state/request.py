@@ -15,8 +15,9 @@ class StateRequest:
     def unregister_route(self, prefix: str) -> None:
         self.routes.pop(prefix, None)
 
+
     def _resolve(self, symbol: str):
-        if not symbol or symbol[0] not in "$#&%@!":
+        if not symbol or symbol[0] not in "$#&%@!|":
             raise ValueError(f"invalid symbol: {symbol}")
 
         for prefix in sorted(self.routes.keys(), key=len, reverse=True):

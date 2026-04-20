@@ -3,9 +3,7 @@
   "ip": "127.0.0.1",
   "group": "dev",
   "role": "local",
-
-  "layout": "buffer",
-
+  "layout": "cs",
   "osc": {
     "in": {
       "bind_ip": "0.0.0.0",
@@ -13,28 +11,28 @@
       "buffer": 65535
     }
   },
-  
   "import": {
-  "code": {
-    "ignore": [
-      "__pycache__",
-      "*.pyc",
-      "*.pyo",
-      "*.sqlite",
-      "*.db",
-      ".DS_Store",
-      "Thumbs.db",
-      ".git",
-      ".venv",
-      "node_modules",
-      "*.zip"
-    ]
-  }
-},
-
+    "code": {
+      "ignore": [
+        "__pycache__",
+        "*.pyc",
+        "*.pyo",
+        "*.sqlite",
+        "*.db",
+        ".DS_Store",
+        ".gitignore",
+        "Thumbs.db",
+        ".git",
+        ".venv",
+        "node_modules",
+        "*.zip",
+        "import",
+        "export",
+        ".pytest_cache"
+      ]
+    }
+  },
   "q": {
-
-
     "default": {
       "provider": "ollama",
       "base_url": "http://127.0.0.1:11434/api/chat",
@@ -42,12 +40,35 @@
       "api_key": "",
       "model": "qwen3:4b",
       "timeout_seconds": 3000,
+      "stream_timeout_seconds": 20,
       "headers": {
         "Content-Type": "application/json"
       },
-      "chat_message_tag": "message.content"
+      "chat_message_tag": "message.content",
+      "stream_message_tag": "message.content",
+      "thinking_message_tag": "message.thinking",
+      "think_payload": {
+        "think": true
+        },
+      "nothink_payload": {}
+      },
+      
+    "qwen": {
+      "provider": "ollama",
+      "base_url": "http://192.168.0.106:11434/api/chat",
+      "health_url": "http://192.168.0.106:11434/api/tags",
+      "api_key": "qwen3:30b",
+      "model": "b",
+      "timeout_seconds": 3000,
+      "stream_timeout_seconds": 3000,
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "chat_message_tag": "message.content",
+      "stream_message_tag": "message.content",
+      "thinking_message_tag": "message.thinking"
     },
-      "dummyt": {
+    "dummyt": {
       "provider": "dummyLLM",
       "base_url": "http://127.0.0.1:9001",
       "api_key": "dummyLLM-key",
@@ -58,12 +79,11 @@
       },
       "chat_message_tag": "response"
     },
-
     "grok": {
       "provider": "grok",
       "base_url": "https://...",
       "api_key": "...",
-      "model": "...",
+      "model": "llama3.1:8",
       "timeout_seconds": 15,
       "headers": {
         "Content-Type": "application/json",
@@ -71,7 +91,6 @@
       },
       "chat_message_tag": "message"
     },
-
     "openai": {
       "provider": "openai",
       "base_url": "https://...",
@@ -82,7 +101,8 @@
         "Content-Type": "application/json",
         "Authorization": "Bearer ..."
       },
-      "chat_message_tag": "choices.0.message.content"
+      "chat_message_tag": "choices.0.message.content",
+      "stream_message_tag": "choices.0.delta.content"
     }
   }
 }

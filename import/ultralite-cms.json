@@ -1,0 +1,154 @@
+{
+  "project": "UltraLite-CMS",
+  "goal": "Generate a directly usable static website as files only. Separate content, CSS template/theme, JS logic, and assets. Do not create any build tool, generator script, backend, or web server.",
+  "lang": [
+    "vanilla html",
+    "vanilla css",
+    "vanilla js",
+    "json"
+  ],
+  "deps": "none",
+  "mode": "local-only",
+  "backend": "none",
+  "server": "none",
+  "db": "none",
+  "admin_ui": "none",
+  "edit_mode": "file-based",
+  "output_kind": "direct_website_files",
+  "core_idea": [
+    "index.html is the single page shell.",
+    "content lives in JSON files under /content.",
+    "the visual theme lives in CSS files under /templates.",
+    "client-side logic lives in JS files under /js.",
+    "routing is hash-based for zero-config local use.",
+    "the result is already the website itself, not a project that builds a website."
+  ],
+  "mvp_scope": [
+    "single page app shell",
+    "content json files",
+    "one default css theme",
+    "client-side page rendering",
+    "hash routing",
+    "static assets"
+  ],
+  "required_tree": [
+    "index.html",
+    "templates/default.css",
+    "content/home.json",
+    "content/about.json",
+    "js/site.js"
+  ],
+  "optional_tree": [
+    "assets/"
+  ],
+  "page_schema": {
+    "required": [
+      "slug",
+      "title",
+      "body"
+    ],
+    "optional": {
+      "description": "string",
+      "nav_label": "string",
+      "published": {
+        "type": "bool",
+        "default": true
+      }
+    }
+  },
+  "index_html_rules": [
+    "must be directly usable as the website entry file",
+    "must load templates/default.css",
+    "must load js/site.js",
+    "must contain a root mount element for page rendering",
+    "must not depend on any backend or build step"
+  ],
+  "template_rules": {
+    "format": "plain css theme file",
+    "location": "templates/default.css",
+    "purpose": "define the visual appearance of the website",
+    "must_not": [
+      "require preprocessing",
+      "require bundling",
+      "depend on npm"
+    ]
+  },
+  "js_rules": {
+    "location": "js/site.js",
+    "must": [
+      "load page content from /content/*.json or embedded page manifest",
+      "resolve the current hash route",
+      "render the selected page into index.html",
+      "update the document title",
+      "support navigation without full page reload"
+    ],
+    "must_not": [
+      "use frameworks",
+      "use bundlers",
+      "require transpilation",
+      "require a dev server"
+    ]
+  },
+  "routing_rules": {
+    "type": "spa",
+    "mode": "hash",
+    "default_route": "home",
+    "navigation": "without page reload"
+  },
+  "do_not_add": [
+    "app.py",
+    "cms.py",
+    "build.py",
+    "generator scripts",
+    "python",
+    "node",
+    "react",
+    "vue",
+    "svelte",
+    "flask",
+    "django",
+    "fastapi",
+    "database",
+    "api endpoints",
+    "auth",
+    "admin panel",
+    "bundler",
+    "npm"
+  ],
+  "deliver": [
+    "index.html",
+    "templates/default.css",
+    "content/home.json",
+    "content/about.json",
+    "js/site.js"
+  ],
+  "implementation_prompt": {
+    "title": "Generate a direct file-based static website",
+    "requirements": [
+      "deliver only the website files themselves",
+      "do not create build tools",
+      "do not create generator scripts",
+      "do not create app.py",
+      "do not create cms.py",
+      "do not create any backend",
+      "do not create any web server",
+      "generate a directly usable static website structure",
+      "index.html must be the entry file",
+      "templates/default.css must define the default visual theme",
+      "content/*.json files must contain the page content",
+      "js/site.js must render pages client-side",
+      "use hash routing for local zero-config use",
+      "no frameworks",
+      "no external dependencies",
+      "no database",
+      "no extra features"
+    ],
+    "deliver": [
+      "index.html",
+      "templates/default.css",
+      "content/home.json",
+      "content/about.json",
+      "js/site.js"
+    ]
+  }
+}

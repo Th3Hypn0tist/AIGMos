@@ -1,37 +1,48 @@
 from __future__ import annotations
 
-from system.cs.parser import HandlerResponse
+from system.cs.command_def import CommandDef
+from system.cs.models import HandlerResponse
+from system.lib.trigger.api import define_trigger_from_command
 
 command = "trig"
-help_short = "trig !name <left> == <right>"
-help_full = "register passive equality trigger"
+help_short = 'trig !name <expr> | trig !name onchange <ref> | trig !name cron "spec"'
+help_full = """create ! trigger
 
+forms:
+  trig !name <expr>
+  trig !name onchange <ref>
+  trig !name cron "spec"
+
+expr operators:
+  == != < <= > >= AND OR XOR NOT
+
+rules:
+  - logical expressions using AND / OR / XOR / NOT must be grouped with parentheses
+  - first seen onchange value seeds baseline and does not fire
+  - writable control field: !name:pulse = <ms>
+  - readable runtime field: !name:state
+
+examples:
+  trig !sensor.hot $UM.sensor:temp >= 40
+  trig !sensor.change onchange $UM.sensor:temp
+  trig !heartbeat cron "every 1s"
+  trig !backup cron "daily"
+  !sensor.hot:pulse = 100
+"""
 
 def handler(line: str, parser) -> HandlerResponse:
-    parts = line.split(maxsplit=2)
-    if len(parts) != 3:
-        return HandlerResponse(error="usage: trig !name <left> == <right>")
+    try:
+        define_trigger_from_command(parser, line)
+    except ValueError as exc:
+        return HandlerResponse(error=str(exc))
+    return HandlerResponse(buffer_output='[ok]')
 
-    _, target, expr = parts
 
-    if not target.startswith("!") or len(target) == 1:
-        return HandlerResponse(error="trigger target must start with !")
 
-    if "==" not in expr:
-        return HandlerResponse(error="only == is supported")
-
-    left, right = expr.split("==", 1)
-    left = left.strip()
-    right = right.strip()
-
-    if not left:
-        return HandlerResponse(error="left side missing")
-
-    if not right:
-        return HandlerResponse(error="right side missing")
-
-    if left[0] not in "$#&%@!":
-        return HandlerResponse(error="left side must be a symbol")
-
-    parser.runtime["triggers"].add(target[1:], left, right)
-    return HandlerResponse(buffer_output="[ok]")
+def register() -> CommandDef:
+    return CommandDef(
+        command=command,
+        handler=handler,
+        help_short=help_short,
+        help_full=help_full,
+    )

@@ -1,0 +1,91 @@
+{
+  "instance_name": "AIGMos-dev",
+  "ip": "127.0.0.1",
+  "group": "dev",
+  "role": "local",
+
+  "layout": "buffer",
+
+  "osc": {
+    "in": {
+      "bind_ip": "0.0.0.0",
+      "port": 9000,
+      "buffer": 65535
+    }
+  },
+  
+  "import": {
+  "code": {
+    "ignore": [
+      "__pycache__",
+      "*.pyc",
+      "*.pyo",
+      "*.sqlite",
+      "*.db",
+      ".DS_Store",
+      "Thumbs.db",
+      ".git",
+      ".venv",
+      "node_modules",
+      "*.zip"
+    ]
+  }
+},
+
+  "q": {
+
+
+    "default": {
+      "provider": "ollama",
+      "base_url": "http://127.0.0.1:11434/api/chat",
+      "health_url": "http://127.0.0.1:11434/api/tags",
+      "api_key": "",
+      "model": "qwen3:4b",
+      "timeout_seconds": 3000,
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "chat_message_tag": "message.content",
+      "stream_message_tag": "response"
+    },
+      "dummyt": {
+      "provider": "dummyLLM",
+      "base_url": "http://127.0.0.1:9001",
+      "api_key": "dummyLLM-key",
+      "model": "dummyLLM",
+      "timeout_seconds": 15,
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "chat_message_tag": "response"
+    },
+
+    "grok": {
+      "provider": "grok",
+      "base_url": "https://...",
+      "api_key": "...",
+      "model": "...",
+      "timeout_seconds": 15,
+      "headers": {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer ..."
+      },
+      "chat_message_tag": "message"
+    },
+
+    "openai": {
+      "provider": "openai",
+      "base_url": "https://...",
+      "api_key": "...",
+      "model": "...",
+      "timeout_seconds": 15,
+      "headers": {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer ..."
+      },
+      "chat_message_tag": "choices.0.message.content",
+      "stream_message_tag": "choices.0.delta.content"
+    }
+  }
+}
+

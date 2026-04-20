@@ -1,0 +1,10 @@
+```python
+# REQUIRED: Command metadata for AIGMos parser
+command = "hello"
+help_short = "Echoes a Hello World! message"
+help_full = "Echoes a Hello World! message to the buffer"
+
+# REQUIRED: Handler function (no parameters)
+def handler():
+    return "Hello, world!"
+```

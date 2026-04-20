@@ -1,0 +1,82 @@
+# extensions/layout/modules
+# =====================================================================
+# AIGMOS_EXTENSIONS_LAYOUT_MODULES_V2
+# purpose:
+#   deterministic layout leaf modules for the current layout runtime
+# owns:
+#   - module-local rendering payload
+#   - module-local keyboard handling
+#   - module-local clear behavior
+# does_not_own:
+#   - terminal event loop
+#   - active-layout switching
+#   - parser lifecycle
+#   - global redraw scheduling
+# =====================================================================
+
+EXT_LAYOUT_MODULES_PATH="extensions/layout/modules/"
+EXT_LAYOUT_MODULES_VERSION="2.0"
+
+REQUIRED_EXPORTS='''
+MODULE = "foo"
+DEFAULT_PROMPT = "cs> "
+FOCUSABLE = False
+
+def get_targets(handle: str, config: dict | None = None) -> tuple[str, str]:
+    return "$FOO", "$FOO"
+
+def measure(ctx, binding_handle: str, spec: dict, width: int, instance) -> dict:
+    return {"min_h": 1, "scalable_y": True}
+
+def build_payload(ctx, binding_handle: str, spec: dict, rect: dict, instance):
+    ...
+'''
+
+OPTIONAL_EXPORTS='''
+def handle_key(ctx, module_handle: str, key: int | str) -> bool:
+    return False
+
+def clear(ctx, module_handle: str, instance):
+    return True
+'''
+
+RULES='''
+- MODULE must match the filename exactly
+- module loader requires:
+  MODULE, DEFAULT_PROMPT, FOCUSABLE,
+  get_targets(), measure(), build_payload()
+- build_payload() must return a payload compatible with
+  system.layout.module_api.finalize_payload()
+- rendering is centralized; modules do not write directly to the terminal
+- focusable means the module may receive keyboard input
+- clear() is optional; /clear will call it when present
+- module state must go through official layout/state APIs only
+'''
+
+TEMPLATE='''
+from __future__ import annotations
+
+from typing import Any
+
+MODULE = "foo"
+DEFAULT_PROMPT = "cs> "
+FOCUSABLE = False
+
+
+def get_targets(handle: str, config: dict[str, Any] | None = None) -> tuple[str, str]:
+    return "$FOO", "$FOO"
+
+
+def measure(ctx, binding_handle: str, spec: dict[str, Any], width: int, instance) -> dict[str, Any]:
+    return {"min_h": 1, "scalable_y": True}
+
+
+def build_payload(ctx, binding_handle: str, spec: dict[str, Any], rect: dict[str, int], instance):
+    from system.layout.module_api import finalize_payload
+    attrs = dict(spec.get("attrs") or {})
+    return finalize_payload(ctx, instance.handle, [""], attrs, MODULE, rect)
+
+
+def clear(ctx, module_handle: str, instance):
+    return True
+'''

@@ -1,66 +1,64 @@
 from __future__ import annotations
 
-import shlex
+from system.cs.command_def import CommandDef
+from system.cs.models import HandlerResponse
+from system.cs.runtime_ctx import get_layout_caller_handle
+from system.lib.q.errors import QCallError
+from system.lib.q.worker import enqueue_q_command
+from system.layout.lib.targets import resolve_querytarget
 
-from system.cs.lib.qcall import QCallError, q_chat
-from system.cs.parser import HandlerResponse
+command = 'q'
+help_short = 'q[.profile] <target> <prompt...>'
+help_full = """stateful chat/query dispatch
 
+rules:
+- target is explicit
+- dispatches query asynchronously
+- does not return successful assistant output to command buffer
+- queue truth lives in #SYSTEM:Qcue
+- q-root live fields are active-render cache only
+- queued items do not overwrite active q-root live state
+- one global active slot per q runtime root; queued FIFO per profile alias
 
-command = "q"
-help_short = "q[.profile] <prompt> -> chat to active/default profile"
-help_full = (
-    "q[.<profile>] <prompt>\n"
-    "\n"
-    "Examples:\n"
-    "  q \"hello\"\n"
-    "  q.grok \"hello\"\n"
-    "\n"
-    "Semantics:\n"
-    "- no public target\n"
-    "- plain q uses active profile, fallback = default\n"
-    "- writes turns to $CH:q or $CH:<alias>\n"
-    "- passes active chat history as context\n"
-    "- writes AI output to $SYSTEM.BUFFER only when layout=buffer\n"
-)
-
-
-def _force_render(parser) -> None:
-    flags = parser.runtime.get("flags")
-    if isinstance(flags, dict):
-        flags["force_render"] = True
+examples:
+  q |:q hello
+  q |HELP:q explain #HELP:README.md
+  q.coder |:q refactor this
+"""
 
 
-def _is_buffer_layout(parser) -> bool:
-    out = parser.state.get("$SYSTEM.LAYOUT")
-    if out["error"]:
-        return False
-    return str(out["result"] or "").strip().lower() == "buffer"
+def _parse_q_target_prompt(line: str) -> tuple[str, str, str]:
+    raw = str(line or '').strip()
+    parts = raw.split(maxsplit=2)
+    if len(parts) < 3:
+        raise ValueError('usage: q[.profile] <target> <prompt...>')
+    command_token, target, prompt = parts[0], parts[1], parts[2]
+    if not prompt or not prompt.strip():
+        raise ValueError('q requires prompt')
+    return command_token, target, prompt
 
 
-def handler(line: str, parser) -> HandlerResponse:
+def handler(line: str, parser):
     try:
-        parts = shlex.split(line)
+        command_token, raw_target, prompt = _parse_q_target_prompt(line)
     except Exception as exc:
-        return HandlerResponse(error=f"q parse error: {exc}")
-
-    if len(parts) < 2:
-        return HandlerResponse(error="usage: q[.<profile>] <prompt>")
-
-    command_token = parts[0]
-    prompt = " ".join(parts[1:]).strip()
-    if not prompt:
-        return HandlerResponse(error="q requires prompt")
+        return HandlerResponse(error=str(exc or ''), force_render=True)
 
     try:
-        out = q_chat(parser, command_token, prompt)
+        q_root = resolve_querytarget(raw_target, get_layout_caller_handle(parser))
+        enqueue_q_command(parser, command_token, q_root, prompt)
     except QCallError as exc:
-        return HandlerResponse(error=str(exc))
+        return HandlerResponse(error=str(exc or ''), force_render=True)
     except Exception as exc:
-        return HandlerResponse(error=str(exc))
+        return HandlerResponse(error=str(exc or ''), force_render=True)
 
-    _force_render(parser)
+    return HandlerResponse(buffer_output='', force_render=True)
 
-    if _is_buffer_layout(parser):
-        return HandlerResponse(buffer_output=out["message"])
 
-    return HandlerResponse()
+def register() -> CommandDef:
+    return CommandDef(
+        command=command,
+        handler=handler,
+        help_short=help_short,
+        help_full=help_full,
+    )

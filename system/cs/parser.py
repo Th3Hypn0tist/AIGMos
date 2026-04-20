@@ -1,32 +1,53 @@
 # system/cs/parser.py
-
 from __future__ import annotations
 
-import importlib.util, threading, sys, shlex
-from dataclasses import dataclass
-from datetime import datetime
+import shlex
+import threading
 from pathlib import Path
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Dict, Optional
 
-from system.cs.symbols import is_symbol_line, parse_assignment, parse_runner_control
-from system.runtime.runner import runner_control, set_runner_autostart
-from system.runtime.runner_store import set_runner_autostart as set_runner_autostart_persistent
-from system.runtime.runner_store import set_runner_mode_persistent
+from system.cs.command_registry import (
+    get_full_help as registry_get_full_help,
+    get_help_index as registry_get_help_index,
+    get_short_help as registry_get_short_help,
+    load_commands,
+    resolve_command,
+)
+from system.cs.models import CommandDef, HandlerResponse
+from system.cs.reporter import handle_error, write_buffer
+from system.cs.resolver import maybe_expand_direct_exec_symbol
+from system.cs.runtime_ctx import force_render
+from system.cs.symbol_handler import parse_symbol_line
+from system.cs.symbols import is_symbol_line
+from system.state.api import write_value
 
 
-@dataclass
-class HandlerResponse:
-    result: Any = None
-    buffer_output: str = ""
-    error: str = ""
+def _parser_writer_tag(command_name: str) -> str:
+    clean = str(command_name or "").strip()
+    return f"parser:{clean}" if clean else "parser:unknown"
 
 
-@dataclass
-class CommandDef:
-    command: str
-    handler: Callable[..., HandlerResponse]
-    help_short: str
-    help_full: str
+def _maybe_handle_layout_instance_switch(parser, line: str) -> Optional[str]:
+    clean = str(line or "").strip()
+    if not clean or not clean.startswith("|"):
+        return None
+    if any(ch.isspace() for ch in clean) or "=" in clean:
+        return None
+
+    ctx = parser.runtime.get("ctx")
+    if not isinstance(ctx, dict):
+        return handle_error(parser, clean, "layout runtime context missing")
+
+    try:
+        from system.layout import registry as layout_registry
+
+        target = layout_registry.ensure_instance(ctx, clean)
+        handle = str(getattr(target, "handle", target) or clean).strip() or clean
+        layout_registry.switch_active(ctx, handle)
+        force_render(parser)
+        return None
+    except Exception as exc:
+        return handle_error(parser, clean, str(exc))
 
 
 class Parser:
@@ -41,102 +62,99 @@ class Parser:
 
     def _load_commands(self) -> None:
         commands_dir = Path(__file__).resolve().parent / "commands"
-
-        for file_path in sorted(commands_dir.glob("*.py")):
-            if file_path.name.startswith("_"):
-                continue
-
-            spec = importlib.util.spec_from_file_location(file_path.stem, file_path)
-            if spec is None or spec.loader is None:
-                continue
-
-            module = importlib.util.module_from_spec(spec)
-            sys.modules[spec.name] = module
-            spec.loader.exec_module(module)
-
-            command = getattr(module, "command", None)
-            handler = getattr(module, "handler", None)
-            help_short = getattr(module, "help_short", "")
-            help_full = getattr(module, "help_full", "")
-
-            if not command or not callable(handler):
-                continue
-
-            self.registry[command] = CommandDef(
-                command=command,
-                handler=handler,
-                help_short=help_short,
-                help_full=help_full,
-            )
+        self.registry = load_commands(commands_dir)
 
     def parse(self, input_line: str) -> Optional[str]:
         with self._parse_lock:
-            line = input_line.strip()
+            line = str(input_line or "").strip()
             if not line:
                 return None
 
-            if is_symbol_line(line):
-                return self._parse_symbol_line(line)
-
             command_name = "/" if line.startswith("/") else line.split()[0]
-            cmd = self.registry.get(command_name)
+            writer_tag = _parser_writer_tag(command_name)
+            previous_writer_tag = self.runtime.get("_active_writer_tag")
+            previous_ext = self.runtime.get("_active_command_is_extension")
+            previous_pkg = self.runtime.get("_active_command_source_package")
 
-            if cmd is None and not line.startswith("/") and "." in command_name:
-                base_name = command_name.split(".", 1)[0]
-                cmd = self.registry.get(base_name)
-
-            if cmd is None:
-                return self._handle_error(line, f"unknown command: {command_name}")
-
+            self.runtime["_active_writer_tag"] = writer_tag
+            self.runtime["_active_command_is_extension"] = False
+            self.runtime["_active_command_source_package"] = ""
             try:
-                response = cmd.handler(line, self)
-            except Exception as exc:
-                return self._handle_error(line, f"handler crash: {exc}")
+                if "=" not in line:
+                    try:
+                        expanded = maybe_expand_direct_exec_symbol(self, line)
+                    except Exception as exc:
+                        return handle_error(self, line, str(exc))
 
-            if response.error:
-                return self._handle_error(line, response.error)
+                    if expanded != line:
+                        return self.parse(expanded)
 
-            output_target = self._extract_output_target(line)
-            if response.result is not None:
-                if not output_target:
-                    return self._handle_error(line, "missing output target")
-
-                result = self.state.set(output_target, response.result)
-                if result["error"]:
-                    return self._handle_error(line, result["error"])
-
-            if response.buffer_output:
-                self._write_buffer(response.buffer_output)
-
-            return None
-
-    def _parse_symbol_line(self, line: str) -> Optional[str]:
-        try:
-            runner_cmd = parse_runner_control(line)
-            if runner_cmd is not None:
-                runner_control(runner_cmd["target"], runner_cmd["token"])
-                if runner_cmd["token"] in {"once", "cycle", "loop"}:
-                    set_runner_mode_persistent(self.state, runner_cmd["target"], runner_cmd["token"])
-                return None
-
-            if "=" in line:
-                assign = parse_assignment(line)
-
-                if assign["target"].startswith("%") and assign["target"].endswith(".autostart"):
-                    runner_name = assign["target"].rsplit(".", 1)[0]
-                    autostart = set_runner_autostart_persistent(self.state, runner_name, assign["value"])
-                    set_runner_autostart(runner_name, autostart)
+                layout_switch_result = _maybe_handle_layout_instance_switch(self, line)
+                if layout_switch_result is not None:
+                    return layout_switch_result
+                if line.startswith("|") and "=" not in line and not any(ch.isspace() for ch in line):
                     return None
 
-                result = self.state.set(assign["target"], assign["value"])
-                if result["error"]:
-                    return self._handle_error(line, result["error"])
+                if is_symbol_line(line):
+                    return parse_symbol_line(self, line)
+
+                cmd = resolve_command(self.registry, line)
+                if cmd is None:
+                    return handle_error(self, line, f"unknown command: {command_name}")
+
+                writer_tag = _parser_writer_tag(cmd.command)
+                self.runtime["_active_writer_tag"] = writer_tag
+                self.runtime["_active_command_is_extension"] = bool(getattr(cmd, "is_extension", False))
+                self.runtime["_active_command_source_package"] = str(getattr(cmd, "source_package", "") or "")
+
+                try:
+                    response = cmd.handler(line, self)
+                except Exception as exc:
+                    return handle_error(self, line, f"handler crash: {exc}")
+
+                if response is None:
+                    response = HandlerResponse()
+                elif not isinstance(response, HandlerResponse):
+                    return handle_error(self, line, f"invalid handler response from {cmd.command}: {type(response).__name__}")
+
+                if response.error:
+                    return handle_error(self, line, response.error)
+
+                if response.result is not None:
+                    output_target = self._extract_output_target(line)
+                    if not output_target:
+                        return handle_error(self, line, "missing output target")
+
+                    result = write_value(
+                        self.state,
+                        output_target,
+                        response.result,
+                        writer=writer_tag,
+                        op="command_result",
+                    )
+                    if result["error"]:
+                        return handle_error(self, line, result["error"])
+
+                if response.buffer_output:
+                    write_buffer(self, response.buffer_output)
+
+                if response.force_render:
+                    force_render(self)
+
                 return None
-
-            return self._handle_error(line, f"unsupported symbol syntax: {line}")
-
-        except Exception as exc:
-            return self._handle_error(line, f"symbol handler crash: {exc}")
+            finally:
+                if previous_writer_tag is None:
+                    self.runtime.pop("_active_writer_tag", None)
+                else:
+                    self.runtime["_active_writer_tag"] = previous_writer_tag
+                if previous_ext is None:
+                    self.runtime.pop("_active_command_is_extension", None)
+                else:
+                    self.runtime["_active_command_is_extension"] = previous_ext
+                if previous_pkg is None:
+                    self.runtime.pop("_active_command_source_package", None)
+                else:
+                    self.runtime["_active_command_source_package"] = previous_pkg
 
     def _extract_output_target(self, line: str) -> Optional[str]:
         if line.startswith("/"):
@@ -151,72 +169,16 @@ class Parser:
             return None
 
         candidate = tokens[1]
-        if candidate and candidate[0] in "$#&%@!":
+        if candidate and candidate[0] in "$#&%@!|":
             return candidate
 
         return None
 
-    def _write_buffer(self, message: str) -> None:
-        out = self.state.get("$SYSTEM.BUFFER")
-        if out["error"]:
-            raise RuntimeError(out["error"])
+    def get_full_help(self, name: str) -> str:
+        return registry_get_full_help(self.registry, name)
 
-        current = out["result"] or {}
-        if not isinstance(current, dict):
-            current = {}
+    def get_short_help(self, name: Optional[str] = None):
+        return registry_get_short_help(self.registry, name)
 
-        nums = []
-        for key in current.keys():
-            try:
-                nums.append(int(key))
-            except Exception:
-                pass
-
-        next_key = str((max(nums) if nums else 0) + 1)
-        current[next_key] = message
-
-        result = self.state.set("$SYSTEM.BUFFER", current)
-        if result["error"]:
-            raise RuntimeError(result["error"])
-
-        flags = self.runtime.get("flags")
-        if isinstance(flags, dict):
-            flags["force_render"] = True
-
-        ui_thread_id = self.runtime.get("ui_thread_id")
-        live_push = self.runtime.get("buffer_live_push")
-
-        if (
-            ui_thread_id is not None
-            and threading.get_ident() != ui_thread_id
-            and callable(live_push)
-        ):
-            live_push(message)
-
-    def _write_error_log(self, full_command: str, errormsg: str) -> None:
-        out = self.state.get("$SYSTEM.ERRORS")
-        if out["error"]:
-            raise RuntimeError(out["error"])
-
-        current = out["result"] or {}
-        if not isinstance(current, dict):
-            current = {}
-
-        ts = datetime.now().strftime("%Y%m%d%H%M%S")
-        key = ts
-        while key in current:
-            key = str(int(key) + 1)
-
-        current[key] = f"{full_command};{errormsg}"
-
-        result = self.state.set("$SYSTEM.ERRORS", current)
-        if result["error"]:
-            raise RuntimeError(result["error"])
-
-    def _handle_error(self, full_command: str, errormsg: str) -> str:
-        self._write_error_log(full_command, errormsg)
-        self._write_buffer(f"[error] {errormsg}")
-        return errormsg
-
-    def get_short_help(self) -> Dict[str, str]:
-        return {k: v.help_short for k, v in sorted(self.registry.items())}
+    def get_help_index(self) -> list[str]:
+        return registry_get_help_index(self.registry)

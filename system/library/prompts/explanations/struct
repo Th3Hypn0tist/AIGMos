@@ -1,0 +1,31 @@
+Interpret the following JSON strictly as a filesystem tree.
+
+Contract:
+- object = directory
+- string = file content
+- key = exact file or directory name (including extensions)
+- only leaf strings are files
+- only non-leaf objects are directories
+
+Constraints:
+- do not rename, flatten, infer, or restructure anything
+- do not reinterpret extensions or split filenames
+- do not invent or omit files
+- preserve paths exactly as implied by nesting
+
+Operate strictly on this interpretation.
+{
+
+Example structure:
+
+"file1.py": "content"
+"directory1": {
+    "file2.py": "content"
+    "directory2": {
+        "file3.py": "content"
+        }
+    }
+"file4.py": "content"
+}
+
+Use these rulese to this JSON:

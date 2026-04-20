@@ -1,0 +1,524 @@
+{
+  "handover_type": "AIGMos_role_payload_q_cleanup",
+  "version": "1.5-alpha-rc-pre-release",
+  "status": "locked_direction",
+  "purpose": "Define the exact runtime, role, payload, and q-module behavior so implementation can be completed deterministically without guessing.",
+  "core_problem_being_solved": "q/runtime/role logic has mixed together backend params, UI params, role materialization, and instance overrides. The target architecture is: canonical reusable roles + direct q-root resolution + base payload overlay model + strict separation of backend params vs UI params.",
+  "final_goal": "Every q-capable instance resolves its effective request strictly from active instance/module state plus canonical role data, builds one final payload, and sends it to the backend. No duplicated role materialization. No wrong root fallback. No UI-only fields leaking into backend payload logic.",
+  "locked_rules": {
+    "R001": "Roles are canonical reusable templates. They are not one-time loaded instance copies.",
+    "R002": "#ROLES is the canonical source of reusable role data.",
+    "R003": "A q instance stores only runtime data, explicit instance overrides, and the selected role reference.",
+    "R004": "Effective request config is built at execution time, not pre-materialized into instance state.",
+    "R005": "Payload merge order is: base alias/profile payload -> role overlay -> instance override overlay.",
+    "R006": "Precedence is: instance override > role > alias/profile base.",
+    "R007": "q module runtime path format is always |<instance>:<module_id>:<field>.",
+    "R008": "Instance-level generic layout fields remain under |<instance>:<field>.",
+    "R009": "STORAGE_PREFIX-based q storage logic must not exist anywhere in the active implementation.",
+    "R010": "Backend param name is think, not thinking.",
+    "R011": "UI/render param name is show_thinking. It is not a backend param.",
+    "R012": "stream is a backend param and must travel through the same effective-config pipeline as other backend params.",
+    "R013": "show_thinking is UI-only and must never affect backend payload generation.",
+    "R014": "If a backend-relevant field exists in role data, it must reach the final effective payload unless explicitly overridden by the instance.",
+    "R015": "think supports backend-native types. It is not globally forced to boolean.",
+    "R016": "Ollama uses think as boolean true/false.",
+    "R017": "GPT-OSS/OpenAI-style reasoning uses think mapped to backend-native reasoning effort such as low/medium/high.",
+    "R018": "The active q root must be resolved directly from the currently active q module root, e.g. |Q:q or |HELP:q.",
+    "R019": "q param resolution must read from the active q root directly. It must not depend on incorrect fallback roots.",
+    "R020": ":ch must contain response/content only. Thinking text must never be appended into :ch.",
+    "R021": "If show_thinking is on and the backend produces visible thinking, show thinking live until response begins.",
+    "R022": "When response begins, visible response replaces visible thinking in the live display area.",
+    "R023": "When the run finishes, the live view returns to :ch-backed history.",
+    "R024": "If show_thinking is off, thinking is not rendered at all.",
+    "R025": "If think is off for a backend that supports disabling reasoning, the request must ask the backend not to emit thinking/reasoning output.",
+    "R026": "init.cs runs only on first boot, never on later normal boots.",
+    "R027": "system/library and extensions content merge into canonical symbol trees; they are not mixed into per-instance runtime state.",
+    "R028": "Writable/persona-capable layout modules require explicit id.",
+    "R029": "Duplicate writable module ids inside the same layout instance are invalid and must error clearly.",
+    "R030": "Role reload updates canonical role source only. Next execution uses updated role data automatically."
+  },
+  "canonical_symbol_model": {
+    "instance_generic_fields": {
+      "path_format": "|<instance>:<field>",
+      "examples": [
+        "|Q:buffer",
+        "|Q:command_history",
+        "|Q:show_thinking",
+        "|HELP:buffer",
+        "|HELP:command_history",
+        "|HELP:show_thinking"
+      ]
+    },
+    "q_module_fields": {
+      "path_format": "|<instance>:<module_id>:<field>",
+      "examples": [
+        "|Q:q:ch",
+        "|Q:q:response",
+        "|Q:q:role",
+        "|Q:q:think",
+        "|Q:q:stream",
+        "|Q:q:temperature",
+        "|Q:q:top_p",
+        "|Q:q:top_k",
+        "|Q:q:repeat_penalty",
+        "|HELP:q:ch",
+        "|HELP:q:role",
+        "|HELP:q:think",
+        "|HELP:q:stream"
+      ]
+    },
+    "canonical_role_source": {
+      "path_format": "#ROLES:<namespace>:<role>",
+      "examples": [
+        "#ROLES:system:help.role",
+        "#ROLES:coders:c.role"
+      ]
+    }
+  },
+  "what_must_not_be_stored_in_instance_runtime": {
+    "forbidden": [
+      "Full copied role payload",
+      "Materialized one-time role snapshots as the default model",
+      "Backend-agnostic fake STORAGE_PREFIX roots",
+      "UI-only fields inside backend payload builder logic",
+      "Thinking text in :ch"
+    ],
+    "allowed": [
+      "Selected role reference",
+      "Instance overrides",
+      "Live response field",
+      "Chat history",
+      "Runtime-only transport state if needed"
+    ]
+  },
+  "role_model": {
+    "definition": "Roles are reusable config overlays plus optional prompt material. They are canonical data sources, not instance snapshots.",
+    "required_behavior": {
+      "selection_storage": "|<instance>:<module_id>:role stores only the selected role reference string",
+      "resolution_time": "Role data is resolved from #ROLES at execution time",
+      "reload_behavior": "reload role / reload roles updates canonical #ROLES data; no per-instance copy refresh is required"
+    },
+    "backend_relevant_role_fields": [
+      "think",
+      "stream",
+      "temperature",
+      "top_p",
+      "top_k",
+      "repeat_penalty"
+    ],
+    "prompt_relevant_role_fields": [
+      "optional system prompt"
+    ],
+    "ui_fields_not_allowed_in_role_backend_merge": [
+      "show_thinking",
+      "view_thinking",
+      "any pure render/layout-only field"
+    ]
+  },
+  "base_alias_profile_model": {
+    "definition": "Alias/profile provides normal backend connection and default model config.",
+    "typical_fields": [
+      "provider",
+      "model",
+      "base_url",
+      "api_key",
+      "timeout_seconds",
+      "stream_timeout_seconds",
+      "stop"
+    ],
+    "note": "Base profile may also include backend default values for think/stream/sampler fields, but role and instance override them."
+  },
+  "instance_override_model": {
+    "definition": "Instance overrides are the final overlay layer and only affect that specific q module instance.",
+    "paths": [
+      "|<instance>:<module_id>:think",
+      "|<instance>:<module_id>:stream",
+      "|<instance>:<module_id>:temperature",
+      "|<instance>:<module_id>:top_p",
+      "|<instance>:<module_id>:top_k",
+      "|<instance>:<module_id>:repeat_penalty"
+    ],
+    "precedence": "Highest"
+  },
+  "effective_config_construction": {
+    "definition": "The effective config is built once per q execution from the active q root and canonical role data.",
+    "algorithm": [
+      "Step 1: Determine the active q module root exactly, e.g. |HELP:q.",
+      "Step 2: Read selected role reference from |HELP:q:role if present.",
+      "Step 3: Build base config from selected alias/profile and command context.",
+      "Step 4: Resolve role data from #ROLES using the role reference.",
+      "Step 5: Overlay backend-relevant role fields onto the base config.",
+      "Step 6: Overlay instance override fields from |HELP:q:* onto the role-augmented config.",
+      "Step 7: Inject role optional system prompt into the message/prompt structure in the backend-specific way.",
+      "Step 8: Freeze the resulting effective config for this execution.",
+      "Step 9: Build the backend payload only from this frozen effective config.",
+      "Step 10: Dispatch the backend request."
+    ],
+    "absolute_rule": "No later payload-building step may re-resolve think/stream/sampler values from unrelated state roots."
+  },
+  "payload_model": {
+    "definition": "Payload is the final backend request object produced from the frozen effective config.",
+    "must_include_when_present": [
+      "think",
+      "stream",
+      "temperature",
+      "top_p",
+      "top_k",
+      "repeat_penalty",
+      "system prompt/messages",
+      "stop if supported and provided by alias/profile"
+    ],
+    "must_not_include": [
+      "show_thinking",
+      "view_thinking",
+      "layout-only values"
+    ]
+  },
+  "backend_native_mapping": {
+    "ollama_chat": {
+      "think_input_type": "boolean",
+      "stream_input_type": "boolean",
+      "mapping_rules": {
+        "think": "payload.think = true|false",
+        "stream": "payload.stream = true|false",
+        "temperature": "payload.options.temperature if implementation uses options block",
+        "top_p": "payload.options.top_p if supported",
+        "top_k": "payload.options.top_k if supported",
+        "repeat_penalty": "payload.options.repeat_penalty if supported"
+      },
+      "critical_rule": "If effective think is false, payload must carry think=false for Ollama-compatible backends that support it."
+    },
+    "gpt_oss_openai_style": {
+      "think_input_type": "effort string",
+      "accepted_values": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "stream_input_type": "boolean",
+      "mapping_rules": {
+        "think": "Map effective think low|medium|high to backend-native reasoning effort field",
+        "stream": "payload.stream = true|false",
+        "temperature": "payload.temperature if supported",
+        "top_p": "payload.top_p if supported"
+      },
+      "critical_rule": "Do not force GPT-OSS think into boolean. Boolean true/false is ignored or meaningless there."
+    }
+  },
+  "think_semantics": {
+    "definition": "think is the backend reasoning control parameter.",
+    "allowed_types_by_backend": {
+      "ollama_like": [
+        true,
+        false
+      ],
+      "gpt_oss_like": [
+        "low",
+        "medium",
+        "high"
+      ]
+    },
+    "forbidden_design": [
+      "Global hardcoded think=true",
+      "Renaming think back to thinking",
+      "Treating show_thinking as the same thing as think"
+    ]
+  },
+  "stream_semantics": {
+    "definition": "stream controls transport/response streaming behavior for the backend request.",
+    "type": "boolean",
+    "allowed_values": [
+      true,
+      false
+    ],
+    "flow_rule": "If stream exists in role or instance override, it must participate in effective config construction and reach payload."
+  },
+  "show_thinking_semantics": {
+    "definition": "show_thinking controls only whether visible thinking is rendered in the UI.",
+    "type": "boolean",
+    "allowed_values": [
+      true,
+      false
+    ],
+    "absolute_rule": "show_thinking must never alter the backend payload.",
+    "expected_effects": {
+      "true": "Visible thinking may be shown live until response starts.",
+      "false": "Thinking is hidden from UI completely, but normal response still streams or renders as configured."
+    }
+  },
+  "q_execution_pipeline": {
+    "pipeline": [
+      "User input enters active <cs>.",
+      "Parser determines whether input is command/symbol assignment/plain text.",
+      "For q-routed plain text, router determines active q module root exactly.",
+      "prepare_q_session(active_q_root) resolves alias/profile + role + instance overrides.",
+      "Effective config is frozen.",
+      "Payload is built from frozen effective config.",
+      "Transport sends payload to backend.",
+      "Stream/session handler processes backend response.",
+      "Live UI state updates response/thinking display areas as needed.",
+      "Final response content is appended to :ch.",
+      "Live temp fields are cleared or normalized when the run ends."
+    ]
+  },
+  "q_runtime_root_resolution": {
+    "definition": "All q param lookup must resolve from the active q root directly.",
+    "correct_examples": [
+      "|Q:q",
+      "|HELP:q",
+      "|Q.help:q1"
+    ],
+    "incorrect_examples": [
+      "|Q",
+      "$Q",
+      "fallback shadow root unrelated to active q module",
+      "legacy STORAGE_PREFIX roots"
+    ],
+    "critical_rule": "If the active q root is |HELP:q, then think/stream/role/samplers must be read from |HELP:q:* first."
+  },
+  "chat_history_contract": {
+    "path": "|<instance>:<module_id>:ch",
+    "must_contain": [
+      "final response content",
+      "completed assistant output",
+      "normal chat history records"
+    ],
+    "must_not_contain": [
+      "thinking trace",
+      "backend reasoning trace",
+      "UI-only markers"
+    ]
+  },
+  "thinking_display_contract": {
+    "if_show_thinking_true": [
+      "Before response begins, visible thinking may be shown from backend thinking channel if one exists.",
+      "When visible response begins, response replaces visible thinking in the live display area.",
+      "Final persisted history remains response-only."
+    ],
+    "if_show_thinking_false": [
+      "Thinking is never rendered in the UI.",
+      "Response still renders normally.",
+      "Persisted history remains response-only."
+    ],
+    "if_think_disabled_in_backend": [
+      "Backend request should ask for no reasoning output when that backend supports disabling it.",
+      "If a backend still violates that contract, thinking must not be appended into :ch."
+    ]
+  },
+  "role_reload_model": {
+    "reload_role": "Reload only the targeted canonical role package into #ROLES.",
+    "reload_roles": "Rebuild canonical role tree into #ROLES from source directories.",
+    "post_reload_effect": "The next q execution uses the updated canonical role automatically.",
+    "not_required": "No mandatory per-instance role-copy rebuild step."
+  },
+  "library_merge_model": {
+    "help": {
+      "source": "system/library/help",
+      "target": "#HELP"
+    },
+    "roles": {
+      "sources": [
+        "extensions/roles",
+        "system/library/roles"
+      ],
+      "target": "#ROLES",
+      "layout": "System content remains clearly separated under its namespace."
+    },
+    "prompts": {
+      "sources": [
+        "extensions/prompts",
+        "system/library/prompts"
+      ],
+      "target": "#P"
+    },
+    "routines": {
+      "sources": [
+        "extensions/routines",
+        "system/library/routines"
+      ],
+      "target": "#R"
+    }
+  },
+  "validation_rules": {
+    "layout_module_ids": [
+      "Writable modules must have explicit id.",
+      "q modules are writable/persona-capable and require explicit id.",
+      "Duplicate ids inside the same layout instance must error.",
+      "Validation error must identify the offending template."
+    ],
+    "role_fields": [
+      "Unknown role fields should not silently alter payload unless intentionally supported.",
+      "Known backend fields must be typed/normalized before payload build.",
+      "System prompt file is optional and must be handled if present."
+    ],
+    "think_values": [
+      "For Ollama-like backends, think should normalize to boolean.",
+      "For GPT-OSS-like backends, think should normalize to low|medium|high.",
+      "Do not coerce GPT-OSS reasoning effort to boolean."
+    ]
+  },
+  "implementation_requirements": {
+    "must_exist": [
+      "One function that resolves active q root exactly",
+      "One function that reads role reference from active q root",
+      "One function that loads canonical role data from #ROLES",
+      "One function that reads instance overrides from active q root",
+      "One function that merges base + role + instance into a frozen effective config",
+      "One backend mapping layer that converts frozen effective config into provider-native payload"
+    ],
+    "must_not_exist": [
+      "Second-pass payload builder that re-reads think/stream from unrelated state roots",
+      "Implicit role materialization into instance runtime as the primary model",
+      "Mixing UI flags into backend effective config resolution"
+    ]
+  },
+  "recommended_data_shapes": {
+    "role_reference_in_runtime": {
+      "example": "|HELP:q:role = \"system/help\""
+    },
+    "role_payload_source": {
+      "example": "#ROLES:system:help.role"
+    },
+    "instance_override_examples": [
+      "|HELP:q:think = false",
+      "|HELP:q:stream = true",
+      "|HELP:q:top_p = 0.7"
+    ],
+    "instance_ui_examples": [
+      "|HELP:show_thinking = false"
+    ]
+  },
+  "pseudocode": {
+    "resolve_effective_q_config": [
+      "def resolve_effective_q_config(parser, q_root, command_token, prompt):",
+      "    base = load_alias_or_profile_base(parser, command_token, q_root)",
+      "    role_ref = read_symbol(q_root + ':role')",
+      "    role_data = load_role_from_canonical_source(role_ref) if role_ref else {}",
+      "    role_prompt = load_optional_role_system_prompt(role_ref) if role_ref else None",
+      "    instance_overrides = read_instance_q_overrides(q_root)",
+      "    effective = merge(base, role_data, instance_overrides)",
+      "    effective = normalize_backend_types(effective, effective.provider, effective.model)",
+      "    effective.messages = inject_role_prompt(base.messages, role_prompt, effective.provider, effective.model)",
+      "    return freeze(effective)"
+    ],
+    "build_and_send": [
+      "def execute_q(parser, q_root, command_token, prompt):",
+      "    effective = resolve_effective_q_config(parser, q_root, command_token, prompt)",
+      "    payload = build_backend_payload_from_effective(effective, prompt)",
+      "    stream_backend_response(payload, effective, q_root)"
+    ]
+  },
+  "acceptance_tests": {
+    "T001": {
+      "name": "Role fields reach payload",
+      "given": [
+        "|HELP:q:role = system/help",
+        "#ROLES:system:help.role contains think=false, stream=true, temperature=0.2"
+      ],
+      "expect": [
+        "Effective config contains think=false, stream=true, temperature=0.2 unless overridden by instance",
+        "Payload contains backend-native equivalents"
+      ]
+    },
+    "T002": {
+      "name": "Instance override beats role",
+      "given": [
+        "#ROLES:system:help.role has top_p=0.9",
+        "|HELP:q:top_p = 0.7"
+      ],
+      "expect": [
+        "Effective top_p = 0.7",
+        "Payload uses 0.7"
+      ]
+    },
+    "T003": {
+      "name": "show_thinking does not affect payload",
+      "given": [
+        "|HELP:show_thinking = false",
+        "|HELP:q:think = false"
+      ],
+      "expect": [
+        "Payload is controlled by think=false, not by show_thinking",
+        "show_thinking only affects rendering"
+      ]
+    },
+    "T004": {
+      "name": "Ollama think boolean mapping",
+      "given": [
+        "Provider is Ollama-compatible",
+        "Effective think = false"
+      ],
+      "expect": [
+        "Payload contains think=false"
+      ]
+    },
+    "T005": {
+      "name": "GPT-OSS think effort mapping",
+      "given": [
+        "Provider/model is GPT-OSS-like",
+        "Effective think = low"
+      ],
+      "expect": [
+        "Payload uses backend-native reasoning effort low",
+        "No boolean coercion"
+      ]
+    },
+    "T006": {
+      "name": "Thinking never enters ch",
+      "given": [
+        "Backend emits visible thinking and visible response"
+      ],
+      "expect": [
+        "Live UI may show thinking before response",
+        "|<instance>:<module_id>:ch receives response only"
+      ]
+    },
+    "T007": {
+      "name": "Active q root is exact",
+      "given": [
+        "Current layout instance is |HELP with q module id q"
+      ],
+      "expect": [
+        "All q override reads resolve from |HELP:q:*"
+      ]
+    },
+    "T008": {
+      "name": "No role copy required",
+      "given": [
+        "Role canonical source is changed via reload role"
+      ],
+      "expect": [
+        "Next q execution uses updated canonical role data without rebuilding instance copy"
+      ]
+    }
+  },
+  "common_failure_modes_to_prevent": [
+    "Payload builder re-resolves think from wrong root after effective config is already built",
+    "Role data is copied into instance runtime and goes stale",
+    "show_thinking accidentally disables backend reasoning instead of just hiding UI",
+    "Instance override path reads from |Q instead of |Q:q",
+    "Thinking text is appended into :ch",
+    "GPT-OSS think values are forced into boolean",
+    "Role prompt injection is skipped even though role exists",
+    "stream from role is ignored during payload construction"
+  ],
+  "migration_notes": {
+    "M001": "Rename any active q runtime field named thinking to think.",
+    "M002": "Keep show_thinking only at instance/layout UI level.",
+    "M003": "Remove any logic that requires STORAGE_PREFIX for q module storage.",
+    "M004": "Remove any assumption that roles are one-time loaded instance copies.",
+    "M005": "Ensure prepare_q_session or equivalent freezes effective config once per execution.",
+    "M006": "Ensure payload builders consume only frozen effective config, not ad hoc state lookups."
+  },
+  "minimum_done_definition": {
+    "D001": "Active q root resolution is exact and direct.",
+    "D002": "All supported role backend fields reach payload.",
+    "D003": "Instance overrides correctly override role fields.",
+    "D004": "show_thinking is UI-only.",
+    "D005": "think is backend-native per provider/model.",
+    "D006": "No thinking text lands in :ch.",
+    "D007": "Role reload updates canonical data and next execution uses it.",
+    "D008": "All acceptance tests above pass."
+  },
+  "one_sentence_summary": "Build one frozen effective q config per execution from base profile + canonical role + instance overrides at the active q root, map it to backend-native payload fields, keep UI flags out of payload logic, and never materialize roles as stale per-instance copies."
+}

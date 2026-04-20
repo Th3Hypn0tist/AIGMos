@@ -1,15 +1,20 @@
-# system/cs/lib/file_export.py
-
 from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
-from system.cs.lib.ops import get_subtree, state_side_only, validate_symbol
+from system.cs.lib.ops import get_subtree, state_side_only
+from system.cs.state_ops import get_optional
+from system.cs.symbol_rules import require_symbol
+from system.extensions import (
+    active_command_is_extension,
+    assert_extension_symbol_read_allowed,
+    extension_write_path_allowed,
+)
 
-
-_SYMBOL_ROOTS = "$#&%@!"
 _VALUE_KEY = "__value__"
+_SYMBOL_ROOTS = "$#&%@!|"
 
 
 def is_symbol(token: str) -> bool:
@@ -20,35 +25,31 @@ def resolve_dest_path(parser, token: str) -> Path:
     raw = token
 
     if is_symbol(token):
-        out = parser.state.get(token)
-        if out["error"]:
-            raise ValueError(out["error"])
-        if out["result"] in (None, ""):
+        try:
+            assert_extension_symbol_read_allowed(parser.state, token)
+        except Exception as exc:
+            raise ValueError(str(exc)) from exc
+        value = get_optional(parser.state, token)
+        if value in (None, ""):
             raise ValueError(f"destination symbol not found: {token}")
-
-        value = out["result"]
-        if isinstance(value, (dict, list)):
-            raise ValueError(f"destination symbol is not scalar: {token}")
-
         raw = str(value)
 
-    return Path(str(raw)).expanduser()
+    path = Path(str(raw)).expanduser()
+    if active_command_is_extension(parser.state) and not extension_write_path_allowed(str(path)):
+        raise ValueError(f"forbidden extension destination path: {path}")
+    return path
 
 
 def export_text(parser, src: str, dst_token: str) -> None:
     state_side_only(src, "export.file")
-    validate_symbol(src)
-
-    out = parser.state.get(src)
-    if out["error"]:
-        raise ValueError(out["error"])
-
-    value = out["result"]
-    if not isinstance(value, str):
-        raise ValueError("export.file source must resolve to one string")
+    require_symbol(src)
 
     items = get_subtree(parser.state, src)
-    if len(items) != 1 or items[0][0] != src:
+    if len(items) != 1:
+        raise ValueError("export.file source must resolve to one string")
+
+    symbol, value = items[0]
+    if symbol != src or not isinstance(value, str):
         raise ValueError("export.file source must resolve to one string")
 
     dst = resolve_dest_path(parser, dst_token)
@@ -61,7 +62,7 @@ def export_text(parser, src: str, dst_token: str) -> None:
 
 def export_json(parser, src: str, dst_token: str) -> None:
     state_side_only(src, "export.json")
-    validate_symbol(src)
+    require_symbol(src)
 
     value = _resolve_json_value(parser, src)
     dst = resolve_dest_path(parser, dst_token)
@@ -75,7 +76,7 @@ def export_json(parser, src: str, dst_token: str) -> None:
 
 def export_code(parser, src: str, dst_token: str) -> None:
     state_side_only(src, "export.code")
-    validate_symbol(src)
+    require_symbol(src)
 
     items = get_subtree(parser.state, src)
     if not items:
@@ -97,10 +98,8 @@ def export_code(parser, src: str, dst_token: str) -> None:
     if exact_found and child_items:
         raise ValueError("export.code source cannot have both value and children")
 
-    # mode 1: # subtree
     if child_items:
-        if not src.startswith("#"):
-            raise ValueError("export.code subtree source must start with #")
+        require_symbol(src, allowed="#", role="export.code subtree source")
         files = _collect_tree_files(src, child_items)
         _write_code_tree(dst, files)
         return
@@ -108,13 +107,11 @@ def export_code(parser, src: str, dst_token: str) -> None:
     if not exact_found:
         raise ValueError("source not found")
 
-    # mode 2: direct object manifest
     if isinstance(exact_value, dict):
         files = _collect_manifest_files(exact_value)
         _write_code_tree(dst, files)
         return
 
-    # mode 3: string leaf
     if isinstance(exact_value, str):
         manifest = _try_parse_manifest_root(exact_value)
         if manifest is not None:
@@ -223,104 +220,47 @@ def _collect_manifest_files(root: dict) -> dict[tuple[str, ...], str]:
     return files
 
 
-def _walk_manifest_node(
-    node: dict,
-    prefix: tuple[str, ...],
-    files: dict[tuple[str, ...], str],
-    dirs: set[tuple[str, ...]],
-) -> None:
-    for raw_key, value in node.items():
-        if not isinstance(raw_key, str) or not raw_key:
-            raise ValueError("export.code manifest keys must be non-empty strings")
+def _walk_manifest_node(node: Any, path: tuple[str, ...], files: dict[tuple[str, ...], str], dirs: set[tuple[str, ...]]) -> None:
+    if isinstance(node, str):
+        if not path:
+            raise ValueError("export.code manifest root cannot be a string")
+        files[path] = node
+        return
 
-        parts = tuple(_split_export_path(raw_key))
-        full = prefix + parts
+    if not isinstance(node, dict):
+        raise ValueError("export.code manifest supports only objects and string leaves")
 
-        if isinstance(value, str):
-            _add_export_file(files, dirs, full, value)
-            continue
-
+    for key, value in node.items():
+        name = str(key).strip()
+        if not name:
+            raise ValueError("export.code manifest contains empty path segment")
+        next_path = path + (name,)
         if isinstance(value, dict):
-            _add_export_dir(files, dirs, full)
-            _walk_manifest_node(value, full, files, dirs)
-            continue
-
-        raise ValueError("export.code manifest values must be string or object")
+            dirs.add(next_path)
+        _walk_manifest_node(value, next_path, files, dirs)
 
 
-def _collect_tree_files(src: str, child_items: list[tuple[str, object]]) -> dict[tuple[str, ...], str]:
-    prefix = src + ":"
+def _collect_tree_files(src: str, items: list[tuple[str, Any]]) -> dict[tuple[str, ...], str]:
     files: dict[tuple[str, ...], str] = {}
-    dirs: set[tuple[str, ...]] = set()
+    prefix = src + ":"
 
-    for symbol, value in child_items:
+    for symbol, value in items:
+        rel = symbol[len(prefix):] if symbol.startswith(prefix) else ""
+        parts = tuple(part for part in rel.split(":") if part)
+        if not parts:
+            continue
         if not isinstance(value, str):
-            raise ValueError(f"export.code value must be string: {symbol}")
-
-        rel = symbol[len(prefix):]
-        if not rel:
-            raise ValueError(f"invalid code source: {symbol}")
-
-        parts = tuple(rel.split(":"))
-        _add_export_file(files, dirs, parts, value)
+            raise ValueError(f"export.code subtree leaf must be string: {symbol}")
+        files[parts] = value
 
     if not files:
-        raise ValueError("export.code source is empty")
-
+        raise ValueError("export.code subtree is empty")
     return files
-
-
-def _add_export_dir(
-    files: dict[tuple[str, ...], str],
-    dirs: set[tuple[str, ...]],
-    path: tuple[str, ...],
-) -> None:
-    if not path:
-        raise ValueError("invalid export.code directory path")
-    if path in files:
-        raise ValueError(f"export.code path conflict: {'/'.join(path)}")
-    dirs.add(path)
-
-
-def _add_export_file(
-    files: dict[tuple[str, ...], str],
-    dirs: set[tuple[str, ...]],
-    path: tuple[str, ...],
-    value: str,
-) -> None:
-    if not path:
-        raise ValueError("invalid export.code file path")
-    if path in dirs:
-        raise ValueError(f"export.code path conflict: {'/'.join(path)}")
-    if path in files:
-        raise ValueError(f"export.code duplicate file path: {'/'.join(path)}")
-
-    for i in range(1, len(path)):
-        parent = path[:i]
-        if parent in files:
-            raise ValueError(f"export.code file/dir conflict: {'/'.join(parent)}")
-        dirs.add(parent)
-
-    files[path] = value
-
-
-def _split_export_path(raw: str) -> list[str]:
-    if raw.startswith("/"):
-        raise ValueError(f"export.code path must be relative: {raw}")
-    if "\\" in raw:
-        raise ValueError(f"export.code path must use '/': {raw}")
-
-    parts = raw.split("/")
-    if not parts or any(part in ("", ".", "..") for part in parts):
-        raise ValueError(f"invalid export.code path: {raw}")
-
-    return parts
 
 
 def _write_single_file(dst: Path, value: str) -> None:
     if dst.exists() and dst.is_dir():
         raise ValueError(f"destination is a directory: {dst}")
-
     dst.parent.mkdir(parents=True, exist_ok=True)
     dst.write_text(value, encoding="utf-8")
 
@@ -331,7 +271,7 @@ def _write_code_tree(dst: Path, files: dict[tuple[str, ...], str]) -> None:
 
     dst.mkdir(parents=True, exist_ok=True)
 
-    for rel_parts, value in sorted(files.items()):
-        file_path = dst.joinpath(*rel_parts)
-        file_path.parent.mkdir(parents=True, exist_ok=True)
-        file_path.write_text(value, encoding="utf-8")
+    for parts, value in files.items():
+        path = dst.joinpath(*parts)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(value, encoding="utf-8")

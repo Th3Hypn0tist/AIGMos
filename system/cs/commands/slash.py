@@ -1,45 +1,66 @@
-# system/cs/commands/slash.py
-
 from __future__ import annotations
+
+from system.cs.command_def import CommandDef
+from system.cs.models import HandlerResponse
+
 
 from datetime import datetime
 
 from system.boot import GREETING_TEXT
-from system.config import load_config
-from system.cs.lib.qcall import health_q_profile, set_active_profile
-from system.cs.parser import HandlerResponse
+from system.lib.q.profile import set_active_profile
+from system.lib.q.transport import health_q_profile
+from system.cs.runtime_ctx import (
+    force_render,
+    get_ctx,
+    get_layout_caller_handle,
+    set_flag,
+    set_running,
+)
 
 command = "/"
-help_short = "/help /time /exit /greeting /clear /reload /q /buffer /health"
-help_full = "slash commands"
+help_short = '/help [/cmd] | /time | /greeting | /clear | /health q[.alias] | /exit'
+help_full = """local slash command surface
 
+subcommands:
+- /help [cmd]      list short help or one full help
+- /time            print local time to buffer
+- /greeting        print greeting
+- /clear           clear current layout modules and queue redraw
+- /cs              switch active layout to cs template instance
+- /q               switch active layout to q template instance
+- /monitor[.alias] switch active layout to monitor instance
+- /health q[.x]    GET q profile health_url
+- /exit            stop app
+"""
 
 SLASH_HELP = {
     "/help": "/help [cmd] -> list short help or one full help",
     "/time": "/time -> print local time to buffer",
     "/exit": "/exit -> stop app",
     "/greeting": "/greeting -> print greeting",
-    "/clear": "/clear -> clear $SYSTEM.BUFFER",
-    "/reload": "/reload -> reload config.json into runtime and #SYSTEM:config:*",
-    "/q": "/q[.<alias>] -> set q layout, set active q profile/chat, force rerender",
-    "/buffer": "/buffer -> set buffer layout and force rerender",
+    "/clear": "/clear -> call clear() on clearable modules in the current layout instance and queue hard terminal redraw",
+    "/cs": "/cs -> switch active layout to cs template instance",
+    "/q": "/q -> switch active layout to q template instance",
+    "/monitor": "/monitor[.<alias>] -> switch active layout to monitor instance",
     "/health": "/health q[.<alias>] -> GET q profile health_url",
 }
 
 
-CONFIG_PREFIX = "#SYSTEM:config:"
+
+def _queue_hard_redraw(parser) -> None:
+    try:
+        from system.layout import terminal as layout_terminal  # type: ignore
+
+        ctx = get_ctx(parser)
+        if isinstance(ctx, dict):
+            layout_terminal.queue_hard_redraw(ctx)
+    except Exception:
+        pass
 
 
-def _force_render(parser) -> None:
-    flags = parser.runtime.get("flags")
-    if isinstance(flags, dict):
-        flags["force_render"] = True
-
-
-def _set_layout(parser, mode: str) -> None:
-    out = parser.state.set("$SYSTEM.LAYOUT", mode)
-    if out["error"]:
-        raise RuntimeError(out["error"])
+def _force_hard_render(parser) -> None:
+    _queue_hard_redraw(parser)
+    force_render(parser)
 
 
 def _resolve_q_alias(token: str) -> str:
@@ -48,62 +69,25 @@ def _resolve_q_alias(token: str) -> str:
     return token.split(".", 1)[1].strip() or "default"
 
 
-def _state_set(parser, symbol: str, value) -> None:
-    out = parser.state.set(symbol, value)
-    if out["error"]:
-        raise RuntimeError(out["error"])
+def _switch_layout(parser, route: str) -> None:
+    from system.layout import registry as layout_registry  # type: ignore
+
+    ctx = get_ctx(parser)
+    resolved = layout_registry.ensure_instance(ctx, route)
+    handle = getattr(resolved, "handle", resolved)
+    layout_registry.switch_active(ctx, str(handle))
 
 
-def _delete_config_mirror(parser) -> None:
-    out = parser.state.list_symbols()
-    if out["error"]:
-        raise RuntimeError(out["error"])
+def _clear_current_layout_modules(parser) -> list[str]:
+    from system.layout import registry as layout_registry  # type: ignore
 
-    for symbol in out["result"] or []:
-        if isinstance(symbol, str) and symbol.startswith(CONFIG_PREFIX):
-            deleted = parser.state.delete(symbol)
-            if deleted["error"]:
-                raise RuntimeError(deleted["error"])
+    ctx = get_ctx(parser)
+    handle = get_layout_caller_handle(parser)
+    return layout_registry.clear_layout_modules(ctx, handle or None)
 
 
-def _mirror_config_leafs(parser, data, prefix=("SYSTEM", "config")) -> None:
-    if isinstance(data, dict):
-        for key, value in data.items():
-            key = str(key)
-            if key == "":
-                raise ValueError("empty config key during mirror")
-            _mirror_config_leafs(parser, value, prefix + (key,))
-        return
 
-    if isinstance(data, list):
-        for idx, value in enumerate(data):
-            _mirror_config_leafs(parser, value, prefix + (str(idx),))
-        return
-
-    target = "#" + ":".join(prefix)
-    _state_set(parser, target, data)
-
-
-def _reload_config(parser) -> None:
-    config = load_config()
-
-    _delete_config_mirror(parser)
-    _mirror_config_leafs(parser, config)
-
-    parser.runtime["config"] = config
-
-    ctx = parser.runtime.get("ctx")
-    if isinstance(ctx, dict):
-        ctx["config"] = config
-
-    active_profile = str(parser.runtime.get("q_profile") or "default").strip() or "default"
-    try:
-        set_active_profile(parser, active_profile)
-    except Exception:
-        set_active_profile(parser, "default")
-
-
-def handler(line: str, parser) -> HandlerResponse:
+def handler(line: str, parser):
     tokens = line.split()
     subcmd = tokens[0].lower()
 
@@ -111,76 +95,84 @@ def handler(line: str, parser) -> HandlerResponse:
         if len(tokens) == 1:
             items = []
             for name, short in parser.get_short_help().items():
-                if name == "/":
-                    items.append(short)
-                else:
-                    items.append(f"{name} -> {short}")
-            return HandlerResponse(buffer_output="\n".join(items))
+                items.append(short if name == "/" else f"{name} -> {short}")
+            return HandlerResponse(buffer_output=str('\n'.join(items) or ""))
+
         target = tokens[1]
         if target.startswith("/"):
             text = SLASH_HELP.get(target, "")
             if text:
-                return HandlerResponse(buffer_output=text)
+                return HandlerResponse(buffer_output=str(text or ""))
+
         text = parser.get_full_help(target)
         if not text:
-            return HandlerResponse(error=f"help not found: {target}")
-        return HandlerResponse(buffer_output=text)
+            return HandlerResponse(error=str(f'help not found: {target}' or ""))
+        return HandlerResponse(buffer_output=str(text or ""))
 
     if subcmd == "/time":
-        return HandlerResponse(buffer_output=datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+        return HandlerResponse(buffer_output=str(datetime.now().strftime('%Y-%m-%d %H:%M:%S') or ""))
 
     if subcmd == "/exit":
         parser.should_exit = True
-        return HandlerResponse(buffer_output="[ok] exit")
+        set_running(parser, False)
+        set_flag(parser, "force_render", True)
+        return HandlerResponse(buffer_output=str('[ok] exit' or ""))
 
     if subcmd == "/greeting":
-        return HandlerResponse(buffer_output=GREETING_TEXT)
+        return HandlerResponse(buffer_output=str(GREETING_TEXT or ""))
 
     if subcmd == "/clear":
-        out = parser.state.set("$SYSTEM.BUFFER", {})
-        if out["error"]:
-            return HandlerResponse(error=out["error"])
-        _force_render(parser)
+        try:
+            _clear_current_layout_modules(parser)
+        except Exception as exc:
+            return HandlerResponse(error=str(str(exc) or ""))
+
+        _force_hard_render(parser)
         return HandlerResponse()
 
-    if subcmd == "/reload":
+    if subcmd == "/monitor" or subcmd.startswith("/monitor."):
         try:
-            _reload_config(parser)
+            route = "/monitor" + (subcmd[len("/monitor"):] if subcmd.startswith("/monitor.") else "")
+            _switch_layout(parser, route)
         except Exception as exc:
-            return HandlerResponse(error=str(exc))
-        _force_render(parser)
-        return HandlerResponse(buffer_output="[ok] config reloaded")
-
-    if subcmd == "/buffer":
-        try:
-            _set_layout(parser, "buffer")
-        except Exception as exc:
-            return HandlerResponse(error=str(exc))
-        _force_render(parser)
+            return HandlerResponse(error=str(str(exc) or ""))
+        force_render(parser)
         return HandlerResponse()
 
     if subcmd == "/q" or subcmd.startswith("/q."):
         if len(tokens) != 1:
-            return HandlerResponse(error="usage: /q[.<alias>]")
+            return HandlerResponse(error=str('usage: /q[.<alias>]' or ""))
+
         alias = _resolve_q_alias(subcmd)
         try:
             set_active_profile(parser, alias)
-            _set_layout(parser, "q")
+            _switch_layout(parser, subcmd)
         except Exception as exc:
-            return HandlerResponse(error=str(exc))
-        _force_render(parser)
+            return HandlerResponse(error=str(str(exc) or ""))
+        force_render(parser)
         return HandlerResponse()
 
     if subcmd == "/health":
         if len(tokens) != 2:
-            return HandlerResponse(error="usage: /health q[.<alias>]")
+            return HandlerResponse(error=str('usage: /health q[.<alias>]' or ""))
+
         target = tokens[1].lower()
         if not (target == "q" or target.startswith("q.")):
-            return HandlerResponse(error="usage: /health q[.<alias>]")
+            return HandlerResponse(error=str('usage: /health q[.<alias>]' or ""))
+
         try:
             alias = _resolve_q_alias(target)
-            return HandlerResponse(buffer_output=health_q_profile(parser, alias))
+            return HandlerResponse(buffer_output=str(health_q_profile(parser, alias) or ""))
         except Exception as exc:
-            return HandlerResponse(error=str(exc))
+            return HandlerResponse(error=str(str(exc) or ""))
 
-    return HandlerResponse(error=f"unknown slash command: {subcmd}")
+    return HandlerResponse(error=str(f'unknown slash command: {subcmd}' or ""))
+
+def register() -> CommandDef:
+    return CommandDef(
+        command=command,
+        handler=handler,
+        help_short=help_short,
+        help_full=help_full,
+    )
+

@@ -1,0 +1,65 @@
+AIGMos help index for the current code snapshot.
+
+Primary documentation files:
+- README.md
+- docs/README.md
+- docs/help/HELP_OVERVIEW.md
+- docs/help/COMMAND_SURFACE.md
+- docs/help/LAYOUTS_AND_HELP.md
+- docs/help/Q_AND_QC.md
+- docs/help/TROUBLESHOOTING.md
+
+Runtime-side help files:
+- system/library/help/index.md
+- system/library/help/current_snapshot.md
+- system/library/layout/help.tmpl
+
+Current important command forms:
+- new -> new |<instance> /<module-or-layout>
+- q -> q[.profile] <prompt...>
+- qc -> qc[.profile] <output> <prompt...>
+- run -> run <command|&source>
+- trig -> trig !name <expr> | trig !name onchange <ref> | trig !name cron "spec"
+- on -> on !trigger @event "command"
+- bind -> bind alt-1..alt-9|alt-0 <command...>
+- unbind -> unbind alt-1..alt-9|alt-0
+- binds -> binds
+- ls -> ls [target|prefix*]
+- cat -> cat <target>
+- mk -> mk <target>
+- set -> set <symbol> <value>
+- add -> add <target> <source>
+- cp -> cp <src> <dst>
+- mv -> mv <src> <dst>
+- rm -> rm <target>
+- import.file -> import.file <src> <target>
+- import.json -> import.json <input> <output>
+- import.code -> import.code <src> <dst>
+- export.file -> export.file <src> <dst>
+- export.json -> export.json <src> <dst>
+- export.code -> export.code <src> <dst>
+- map.structure -> map.structure #input [$output]
+- map.files -> map.files #input [$output]
+- hget -> hget <output> <url|symbol>
+- hpost -> hpost <output> <url|symbol> <raw-body...>
+
+Slash commands:
+- /help [/cmd]
+- /time
+- /greeting
+- /clear
+- /reload [...]
+- /health q[.alias]
+- /exit
+- /cs
+- /q
+- /monitor[.alias]
+
+Current help/layout rules:
+- |instance is the layout identity
+- <layout title="..."> is the default display title
+- label input="|:title" reads the instance display title
+- help layout is created with: new |HELP /help
+- qmon is read-only q monitoring for another q-capable instance
+
+If an older canonical/spec file conflicts with the current code snapshot, explain the current code snapshot first.
