@@ -1,16 +1,17 @@
 from __future__ import annotations
 
 from typing import Any
-
-from wcwidth import wcwidth
+from unicodedata import east_asian_width
 
 
 def char_cells(ch: str) -> int:
     try:
-        width = int(wcwidth(str(ch or "")[:1]))
+        # Preserve the existing minimum width of one cell for combining,
+        # control, and empty input; only full/wide glyphs occupy two.
+        char = str(ch or "")[:1]
+        return 2 if char and east_asian_width(char) in ("W", "F") else 1
     except Exception:
-        width = 1
-    return width if width > 0 else 1
+        return 1
 
 
 def text_cells(text: Any) -> int:
